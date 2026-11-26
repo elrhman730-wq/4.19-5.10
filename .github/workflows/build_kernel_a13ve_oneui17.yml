@@ -48,9 +48,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if grep -nE -- '--enable[[:space:]]+KPM|set_memory_to_49_and_low' \
-            .github/workflows/build_kernel_a13ve_oneui17.yml; then
-            echo "KPM enablement or KPM-only patch reference found in the build." >&2
+          # The actual kernel .config is checked after olddefconfig below.
+          # Do not grep this workflow for the test expression itself.
+          if grep -nE -- '--enable[[:space:]]+KPM([[:space:]]|$)'             .github/workflows/build_kernel_a13ve_oneui17.yml | grep -v 'grep -nE'; then
+            echo "KPM enablement found in the build command." >&2
             exit 1
           fi
           if grep -nE '^KPM_ENABLE=true$|^KPM_PATCH_SOURCE=' Profiles/a13ve_oneui17.env; then
