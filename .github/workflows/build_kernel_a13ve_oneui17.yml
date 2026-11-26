@@ -229,6 +229,25 @@ jobs:
               ):
                   raise SystemExit(f"{command}: disabled switch arm validation failed")
 
+          # Persist the dispatch edits. The earlier version validated only the
+          # in-memory string, leaving the compiler to read the untouched file.
+          dispatch.write_text(d)
+          written = dispatch.read_text()
+          if written != d:
+              raise SystemExit("SukiSU dispatch compatibility edits were not persisted")
+          active_dispatch = re.sub(
+              r"(?ms)^#if 0 /\\* .*?^#endif /\\* unsupported SUSFS v2 command \\*/\\n",
+              "",
+              written,
+          )
+          for command in unsupported_commands:
+              if re.search(
+                  r"(?m)^[ \\t]*case[ \\t]+" + re.escape(command) + r"[ \\t]*:",
+                  active_dispatch,
+              ):
+                  raise SystemExit(f"{command}: unsupported active dispatch case remains on disk")
+          print("SukiSU dispatch compatibility edits persisted and verified on disk.")
+
           # Priority-filter hooks do not exist in SUSFS v1.5.7.
           observer = Path("KernelSU/kernel/manager/pkg_observer.c")
           if observer.exists():
