@@ -181,49 +181,53 @@ jobs:
           d = dispatch.read_text()
 
           def disable_unsupported_case(code, command):
-              # SukiSU builtin dispatch contains SUSFS v2 commands that do not
-              # exist in the SUSFS v1.5.7 4.19 ABI. Disable the complete switch
-              # arm (label, handler body, and break/return) rather than inventing
-              # command numbers or aliasing unrelated ABI operations.
+              # Remove only the complete switch arm for commands absent from
+              # the legacy SUSFS 1.5.7 ABI. Keep the surrounding switch intact.
               pattern = re.compile(
-                  r"(?ms)^(?P<indent>[ \\t]*)case[ \\t]+" + re.escape(command) +
-                  r"[ \\t]*:[^\\n]*\\n(?P<body>.*?)(?=^[ \\t]*(?:case[ \\t]+[^:\\n]+:|default[ \\t]*:))"
+                  r"(?ms)^[ \t]*case[ \t]+" + re.escape(command) +
+                  r"[ \t]*:[^\n]*\n.*?(?=^[ \t]*(?:case[ \t]+|default[ \t]*:)|^[ \t]*})"
               )
               matches = list(pattern.finditer(code))
               if len(matches) != 1:
-                  raise SystemExit(f"{command}: expected exactly one complete switch arm, found {len(matches)}")
+                  raise SystemExit(
+                      f"{command}: expected one switch arm in SukiSU dispatch.c, found {len(matches)}"
+                  )
               match = matches[0]
               block = match.group(0)
-              if "SUSFS v1.5.7 / Linux 4.19" not in block:
+              if "unsupported SUSFS v2 command" not in block:
                   wrapped = (
-                      "#if 0 /* " + command + " is unavailable in SUSFS v1.5.7 / Linux 4.19 */\\n"
+                      "#if 0 /* " + command + " unavailable in SUSFS v1.5.7 / Linux 4.19 */\n"
                       + block
-                      + "#endif /* unsupported SUSFS v2 command */\\n"
+                      + "#endif /* unsupported SUSFS v2 command */\n"
                   )
                   code = code[:match.start()] + wrapped + code[match.end():]
               return code
 
-          for command in (
+          unsupported_commands = (
               "CMD_SUSFS_ADD_SUS_MAP",
               "CMD_SUSFS_SET_PRIORITY_UID_FILTER",
               "CMD_SUSFS_ENABLE_AVC_LOG_SPOOFING",
-          ):
+          )
+          for command in unsupported_commands:
               d = disable_unsupported_case(d, command)
 
-          # Verify each unsupported command is present only inside an explicitly
-          # disabled compatibility block; fail closed if the source layout changes.
-          disabled_blocks = re.findall(r"(?ms)^#if 0 /\\* .*?^#endif /\\* unsupported SUSFS v2 command \\*/\\n", d)
-          disabled_source = "\\n".join(disabled_blocks)
-          if len(disabled_blocks) != 3:
-              raise SystemExit(f"expected 3 disabled SUSFS v2 switch arms, found {len(disabled_blocks)}")
-          for command in (
-              "CMD_SUSFS_ADD_SUS_MAP",
-              "CMD_SUSFS_SET_PRIORITY_UID_FILTER",
-              "CMD_SUSFS_ENABLE_AVC_LOG_SPOOFING",
-          ):
-              if not re.search(r"(?m)^\\s*case[ \\t]+" + re.escape(command) + r"[ \\t]*:", disabled_source):
+          # Verify that each requested case arm is enclosed in its own
+          # disabled block. These checks use real newline/tab regex escapes.
+          disabled_blocks = re.findall(
+              r"(?ms)^#if 0 /\* .*?^#endif /\* unsupported SUSFS v2 command \*/\n",
+              d,
+          )
+          if len(disabled_blocks) != len(unsupported_commands):
+              raise SystemExit(
+                  f"expected {len(unsupported_commands)} disabled SUSFS arms, found {len(disabled_blocks)}"
+              )
+          disabled_source = "\n".join(disabled_blocks)
+          for command in unsupported_commands:
+              if not re.search(
+                  r"(?m)^[ \t]*case[ \t]+" + re.escape(command) + r"[ \t]*:",
+                  disabled_source,
+              ):
                   raise SystemExit(f"{command}: disabled switch arm validation failed")
-
 
           # Priority-filter hooks do not exist in SUSFS v1.5.7.
           observer = Path("KernelSU/kernel/manager/pkg_observer.c")
