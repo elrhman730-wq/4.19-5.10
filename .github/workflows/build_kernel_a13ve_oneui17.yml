@@ -139,8 +139,8 @@ jobs:
           if not dispatch.exists():
               raise SystemExit("SukiSU dispatch.c not found")
           d = dispatch.read_text()
-          d = d.replace("#include <linux/susfs.h>\\n", "")
-          d = d.replace("#include <linux/susfs_def.h>\\n", "")
+          d = d.replace("#include <linux/susfs.h>\n", "")
+          d = d.replace("#include <linux/susfs_def.h>\n", "")
           if "SUSFS_MAGIC" in d:
               lines = d.splitlines(keepends=True)
               insert_at = None
@@ -156,7 +156,7 @@ jobs:
                   offset += len(line)
               if insert_at is None:
                   raise SystemExit("SukiSU dispatch.c has no safe boundary after its leading block")
-              d = d[:insert_at] + "#include <linux/susfs_def.h>\\n" + d[insert_at:]
+              d = d[:insert_at] + "#include <linux/susfs_def.h>\n" + d[insert_at:]
               dispatch.write_text(d)
           # KPM is excluded from this build. Prevent its implementation from
           # being textually compiled into ksu_main.c when CONFIG_KPM is unset.
