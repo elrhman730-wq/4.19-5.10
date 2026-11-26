@@ -159,6 +159,7 @@ jobs:
 
           python3 - <<'PY'
           from pathlib import Path
+          import re
 
           path = Path("fs/namespace.c")
           source = path.read_text()
