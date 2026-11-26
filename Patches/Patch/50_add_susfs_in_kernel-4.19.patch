@@ -569,9 +569,9 @@ index 0e25713d09fa..151e574ed026 100644
 +	if (!mnt)
 +		return ERR_PTR(-ENOMEM);
  
-- mnt = alloc_vfsmnt(old->mnt_devname);
-- if (!mnt)
-- 	return ERR_PTR(-ENOMEM);
+-	mnt = alloc_vfsmnt(old->mnt_devname);
+-	if (!mnt)
+-		return ERR_PTR(-ENOMEM);
  
 @@ -1252,4 +1329,13 @@ static struct mount *clone_mnt(struct mount *old, struct dentry *root,
  	mnt->mnt_parent = mnt;
