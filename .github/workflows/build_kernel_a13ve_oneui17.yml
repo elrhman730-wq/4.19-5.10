@@ -179,15 +179,15 @@ jobs:
 
           # Add the v1.5.7 namespace walk variables to clone_mnt().
           replace_once(
-              "#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\\n"
-              "\\tbool is_current_ksu_domain = susfs_is_current_ksu_domain();\\n"
-              "\\tbool is_current_zygote_domain = susfs_is_current_zygote_domain();\\n",
-              "#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\\n"
-              "\\tstruct mount *m;\\n"
-              "\\tstruct mnt_namespace *mnt_ns;\\n"
-              "\\tint mnt_id;\\n"
-              "\\tbool is_current_ksu_domain = susfs_is_current_ksu_domain();\\n"
-              "\\tbool is_current_zygote_domain = susfs_is_current_zygote_domain();\\n",
+              "#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n"
+              "\tbool is_current_ksu_domain = susfs_is_current_ksu_domain();\n"
+              "\tbool is_current_zygote_domain = susfs_is_current_zygote_domain();\n",
+              "#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n"
+              "\tstruct mount *m;\n"
+              "\tstruct mnt_namespace *mnt_ns;\n"
+              "\tint mnt_id;\n"
+              "\tbool is_current_ksu_domain = susfs_is_current_ksu_domain();\n"
+              "\tbool is_current_zygote_domain = susfs_is_current_zygote_domain();\n",
               "add clone_mnt v1.5.7 variables",
           )
 
