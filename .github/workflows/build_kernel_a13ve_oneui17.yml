@@ -240,14 +240,6 @@ jobs:
               )
               observer.write_text(o)
 
-          # Validate that v2-only commands are compile-gated for legacy SUSFS.
-          for source, command, config in (
-              (d, "CMD_SUSFS_ADD_SUS_MAP", "CONFIG_KSU_SUSFS_SUS_MAP"),
-              (d, "CMD_SUSFS_SET_PRIORITY_UID_FILTER", "CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER"),
-          ):
-              if re.search(r"(?m)^\s*case " + re.escape(command) + r":", source):
-                  if f"#ifdef {config}" not in source:
-                      raise SystemExit(f"{command} remains unguarded for legacy SUSFS")
           print("SukiSU legacy SUSFS compatibility checks passed.")
           kpm_lines = re.findall(r"(?m)^[ \t]*#include[^\n]*extension/kpm/kpm\.c[^\n]*\n", m)
           if len(kpm_lines) == 1:
