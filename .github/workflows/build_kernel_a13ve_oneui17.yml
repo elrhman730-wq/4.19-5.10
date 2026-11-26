@@ -132,32 +132,6 @@ jobs:
               raise SystemExit("SukiSU static_call compatibility guard: unexpected kernel_includes.h")
           p.write_text(s)
 
-          # SUSFS_MAGIC and CMD_SUSFS_* are declared by susfs_def.h.
-          # dispatch.c starts with a continued macro/declaration and has no
-          # include directives. Insert after its leading block, not at byte 0.
-          dispatch = Path("KernelSU/kernel/supercall/dispatch.c")
-          if not dispatch.exists():
-              raise SystemExit("SukiSU dispatch.c not found")
-          d = dispatch.read_text()
-          d = d.replace("#include <linux/susfs.h>\n", "")
-          d = d.replace("#include <linux/susfs_def.h>\n", "")
-          if "SUSFS_MAGIC" in d:
-              lines = d.splitlines(keepends=True)
-              insert_at = None
-              seen_content = False
-              offset = 0
-              for line in lines:
-                  if line.strip():
-                      seen_content = True
-                  elif seen_content:
-                      offset += len(line)
-                      insert_at = offset
-                      break
-                  offset += len(line)
-              if insert_at is None:
-                  raise SystemExit("SukiSU dispatch.c has no safe boundary after its leading block")
-              d = d[:insert_at] + "#include <linux/susfs_def.h>\n" + d[insert_at:]
-              dispatch.write_text(d)
           # KPM is excluded from this build. Prevent its implementation from
           # being textually compiled into ksu_main.c when CONFIG_KPM is unset.
           main = Path("KernelSU/kernel/ksu_main.c")
@@ -165,6 +139,22 @@ jobs:
               raise SystemExit("SukiSU ksu_main.c not found")
           m = main.read_text()
           import re
+          # dispatch.c is textually included by ksu_main.c. Its first blank
+          # line is inside a continued macro, so inserting an include there
+          # makes the preprocessor treat it as macro text and ignore it.
+          # Put SUSFS definitions in the parent translation unit instead.
+          dispatch_include = re.findall(
+              r'(?m)^[ \t]*#include[ \t]*["<][^"\n]*supercall/dispatch\.c[">][^\n]*\n',
+              m,
+          )
+          if len(dispatch_include) != 1:
+              raise SystemExit(
+                  f"SukiSU dispatch.c include anchor: expected one match, found {len(dispatch_include)}"
+              )
+          susfs_header = "#include <linux/susfs_def.h>\n"
+          if susfs_header not in m:
+              m = m.replace(dispatch_include[0], susfs_header + dispatch_include[0], 1)
+              main.write_text(m)
           kpm_lines = re.findall(r"(?m)^[ \t]*#include[^\n]*extension/kpm/kpm\.c[^\n]*\n", m)
           if len(kpm_lines) == 1:
               line = kpm_lines[0]
