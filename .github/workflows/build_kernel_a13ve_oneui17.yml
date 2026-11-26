@@ -209,12 +209,11 @@ jobs:
               "add clone_mnt v1.5.7 variables",
           )
 
-          # The base patch's clone_mnt hunk can vary in whitespace across the Legion tree.
-          # Match the semantic zygote/unshare region, not its explanatory comments.
+          # Match the semantic zygote/unshare region, independent of comment whitespace.
           import re
           clone_pattern = re.compile(
-              r"(?ms)^\\t// Secondly, check if it is zygote process.*?"
-              r"(?=^\\tmnt = alloc_vfsmnt\\(old->mnt_devname, false, 0\\);)"
+              r"(?ms)^\t// Secondly, check if it is zygote process.*?"
+              r"(?=^\tmnt = alloc_vfsmnt\(old->mnt_devname, false, 0\);)"
           )
           clone_matches = list(clone_pattern.finditer(source))
           if len(clone_matches) != 1:
@@ -223,14 +222,13 @@ jobs:
                   f"found {len(clone_matches)}"
               )
           new_zygote_clone = (
-              "\\t// Lastly, just check if old->mnt_id is sus.\\n"
-              "\\tif (old->mnt_id >= DEFAULT_SUS_MNT_ID) {\\n"
-              "\\t\\tmnt = alloc_vfsmnt(old->mnt_devname, true, 0);\\n"
-              "\\t\\tgoto bypass_orig_flow;\\n"
-              "\\t}\\n"
+              "\t// Lastly, just check if old->mnt_id is sus.\n"
+              "\tif (old->mnt_id >= DEFAULT_SUS_MNT_ID) {\n"
+              "\t\tmnt = alloc_vfsmnt(old->mnt_devname, true, 0);\n"
+              "\t\tgoto bypass_orig_flow;\n"
+              "\t}\n"
           )
           source = clone_pattern.sub(lambda _: new_zygote_clone, source, count=1)
-
 
           old_fake_id = (
               "#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n"
