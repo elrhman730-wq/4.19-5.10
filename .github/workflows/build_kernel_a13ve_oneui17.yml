@@ -209,31 +209,28 @@ jobs:
               "add clone_mnt v1.5.7 variables",
           )
 
-          old_zygote_clone = (
-              "\t// Secondly, check if it is zygote process and no matter it is doing unshare or not\n"
-              "\tif (likely(is_current_zygote_domain) && (old->mnt_id >= DEFAULT_SUS_MNT_ID)) {\n"
-              "\t\t/* Important Note: \n"
-              "\t\t *  - Here we can't determine whether the unshare is called zygisk or not,\n"
-              "\t\t *    so we can only patch out the unshare code in zygisk source code for now\n"
-              "\t\t *  - But at least we can deal with old sus mounts using alloc_vfsmnt()\n"
-              "\t\t */\n"
-              "\t\tmnt = alloc_vfsmnt(old->mnt_devname, true, 0);\n"
-              "\t\tgoto bypass_orig_flow;\n"
-              "\t}\n"
-              "\t// Lastly, for other process that is doing unshare operation, but only deal with old sus mount\n"
-              "\tif ((flag & CL_COPY_MNT_NS) && (old->mnt_id >= DEFAULT_SUS_MNT_ID)) {\n"
-              "\t\tmnt = alloc_vfsmnt(old->mnt_devname, true, 0);\n"
-              "\t\tgoto bypass_orig_flow;\n"
-              "\t}\n"
+          # The base patch's clone_mnt hunk can vary in whitespace across the Legion tree.
+          # Match the semantic zygote/unshare region, not its explanatory comments.
+          import re
+          clone_pattern = re.compile(
+              r"(?ms)^\\t// Secondly, check if it is zygote process.*?"
+              r"(?=^\\tmnt = alloc_vfsmnt\\(old->mnt_devname, false, 0\\);)"
           )
+          clone_matches = list(clone_pattern.finditer(source))
+          if len(clone_matches) != 1:
+              raise SystemExit(
+                  "port clone_mnt SUSFS mount handling: expected one zygote/unshare region, "
+                  f"found {len(clone_matches)}"
+              )
           new_zygote_clone = (
-              "\t// Lastly, just check if old->mnt_id is sus.\n"
-              "\tif (old->mnt_id >= DEFAULT_SUS_MNT_ID) {\n"
-              "\t\tmnt = alloc_vfsmnt(old->mnt_devname, true, 0);\n"
-              "\t\tgoto bypass_orig_flow;\n"
-              "\t}\n"
+              "\\t// Lastly, just check if old->mnt_id is sus.\\n"
+              "\\tif (old->mnt_id >= DEFAULT_SUS_MNT_ID) {\\n"
+              "\\t\\tmnt = alloc_vfsmnt(old->mnt_devname, true, 0);\\n"
+              "\\t\\tgoto bypass_orig_flow;\\n"
+              "\\t}\\n"
           )
-          replace_once(old_zygote_clone, new_zygote_clone, "port clone_mnt SUSFS mount handling")
+          source = clone_pattern.sub(lambda _: new_zygote_clone, source, count=1)
+
 
           old_fake_id = (
               "#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n"
