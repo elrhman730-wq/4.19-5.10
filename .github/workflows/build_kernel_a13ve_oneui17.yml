@@ -141,7 +141,7 @@ jobs:
               # Do not rely on a unique version.h anchor; upstream dispatch.c
               # may include it in multiple conditional sections.
               # linux/susfs.h is self-contained and safe at file scope.
-              dispatch.write_text("#include <linux/susfs.h>\\n" + d)
+              dispatch.write_text("#include <linux/susfs.h>\n" + d)
 
           # KPM is excluded from this build. Prevent its implementation from
           # being textually compiled into ksu_main.c when CONFIG_KPM is unset.
