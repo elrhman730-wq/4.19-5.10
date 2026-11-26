@@ -131,6 +131,37 @@ jobs:
           elif s.count(new) != 1:
               raise SystemExit("SukiSU static_call compatibility guard: unexpected kernel_includes.h")
           p.write_text(s)
+
+          # SUSFS supercall constants are exported by linux/susfs.h.
+          dispatch = Path("KernelSU/kernel/supercall/dispatch.c")
+          if not dispatch.exists():
+              raise SystemExit("SukiSU dispatch.c not found")
+          d = dispatch.read_text()
+          if "SUSFS_MAGIC" in d and "#include <linux/susfs.h>" not in d:
+              marker = "#include <linux/version.h>\n"
+              if d.count(marker) != 1:
+                  raise SystemExit("SUSFS dispatch include anchor is not unique")
+              d = d.replace(marker, marker + "#include <linux/susfs.h>\n", 1)
+              dispatch.write_text(d)
+
+          # KPM is excluded from this build. Prevent its implementation from
+          # being textually compiled into ksu_main.c when CONFIG_KPM is unset.
+          main = Path("KernelSU/kernel/ksu_main.c")
+          if not main.exists():
+              raise SystemExit("SukiSU ksu_main.c not found")
+          m = main.read_text()
+          import re
+          kpm_lines = re.findall(r"(?m)^[ \t]*#include[^\n]*extension/kpm/kpm\.c[^\n]*\n", m)
+          if len(kpm_lines) == 1:
+              line = kpm_lines[0]
+              if "#ifdef CONFIG_KPM\n" + line not in m:
+                  m = m.replace(line, "#ifdef CONFIG_KPM\n" + line + "#endif /* CONFIG_KPM */\n", 1)
+                  main.write_text(m)
+          elif len(kpm_lines) == 0:
+              if "extension/kpm/kpm.c" in m and "#ifdef CONFIG_KPM" not in m:
+                  raise SystemExit("KPM include exists but could not be isolated")
+          else:
+              raise SystemExit(f"Expected one KPM include, found {len(kpm_lines)}")
           PY
           grep -q 'kernelsu' drivers/Makefile
           grep -q 'drivers/kernelsu/Kconfig' drivers/Kconfig
@@ -317,7 +348,7 @@ jobs:
           vfs_alloc_new = (
               "#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n"
               "\tif (unlikely(susfs_is_current_ksu_domain()))\n"
-              "\t\tmnt = alloc_vfsmnt(fc->source ?: \"none\", true, 0);\n"
+              "\t\tmnt = alloc_vfsmnt_susfs(fc->source ?: \"none\", true, 0);\n"
               "\telse\n"
               "\t\tmnt = alloc_vfsmnt(fc->source ?: \"none\");\n"
               "#else\n"
