@@ -344,24 +344,42 @@ jobs:
               "add copy_tree pre-attach ID correction",
           )
 
-          # Keep CL_COPY_MNT_NS for copy_mnt_ns(), but remove the obsolete zygote-only flag.
-          replace_once(
-              "\tcopy_flags |= CL_COPY_MNT_NS;\n"
-              "\tif (is_zygote_pid) {\n"
-              "\t\t// Let clone_mnt() in copy_tree() know copy_mnt_ns() is run by zygote process\n"
-              "\t\tcopy_flags |= CL_ZYGOTE_COPY_MNT_NS;\n"
-              "\t}\n",
-              "\tcopy_flags |= CL_COPY_MNT_NS;\n",
-              "remove zygote-only copy flag",
-          )
-          replace_once(
-              "\t// Assign the 'last_entry_mnt_id' to 'current->susfs_last_fake_mnt_id' for later use.\n"
-              "\t// should be fine here assuming zygote is forking/unsharing app in one single thread.\n"
-              "\t// Or should we put a lock here?\n"
-              "\tcurrent->susfs_last_fake_mnt_id = last_entry_mnt_id;\n",
+          # The old SUSFS patch used a zygote-only flag and a per-task fake-ID
+          # counter. v1.5.7 uses CL_COPY_MNT_NS only; install it in the real
+          # copy_mnt_ns() function, whose Legion body has CONFIG_KDP_NS branches.
+          import re
+          source = re.sub(
+              r"(?ms)^#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\\n"
+              r"\\s*// Always let clone_mnt\\(\\).*?^#endif\\n",
               "",
-              "remove obsolete task fake-ID counter",
+              source,
           )
+          source = re.sub(
+              r"(?ms)^#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\\n"
+              r"\\s*// Assign the 'last_entry_mnt_id'.*?^#endif\\n",
+              "",
+              source,
+          )
+          copy_start = source.index("struct mnt_namespace *copy_mnt_ns(")
+          copy_end = source.index("\\n/**\\n * create_mnt_ns", copy_start)
+          copy_func = source[copy_start:copy_end]
+          copy_anchor = (
+              "\\tif (user_ns != ns->user_ns)\\n"
+              "\\t\\tcopy_flags |= CL_SHARED_TO_SLAVE | CL_UNPRIVILEGED;\\n"
+          )
+          if copy_func.count(copy_anchor) != 1:
+              raise SystemExit(
+                  f"copy_mnt_ns CL_COPY_MNT_NS anchor: expected one match, found {copy_func.count(copy_anchor)}"
+              )
+          copy_func = copy_func.replace(
+              copy_anchor,
+              copy_anchor
+              + "#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\\n"
+              + "\\tcopy_flags |= CL_COPY_MNT_NS;\\n"
+              + "#endif\\n",
+              1,
+          )
+          source = source[:copy_start] + copy_func + source[copy_end:]
 
           if "CL_ZYGOTE_COPY_MNT_NS" in source:
               raise SystemExit("obsolete CL_ZYGOTE_COPY_MNT_NS reference remains")
