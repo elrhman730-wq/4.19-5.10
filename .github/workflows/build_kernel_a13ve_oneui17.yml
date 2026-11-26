@@ -39,6 +39,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          command -v patch
           for script in Patches/*.sh; do
             bash -n "$script"
             echo "Shell syntax OK: $script"
