@@ -209,30 +209,53 @@ jobs:
               "add clone_mnt v1.5.7 variables",
           )
 
-          # Match the semantic zygote/unshare region, independent of comment whitespace.
-          import re
-          clone_pattern = re.compile(
-              r"(?ms)^[ \t]*// Secondly, check if it is zygote process.*?"
-              r"(?=^[ \t]*mnt[ \t]*=[ \t]*alloc_vfsmnt\(old->mnt_devname,[ \t]*false,[ \t]*0\);)"
-          )
-          clone_matches = list(clone_pattern.finditer(source))
-          if len(clone_matches) != 1:
-              print("DEBUG: clone_mnt SUSFS region candidates:")
-              for line_no, line in enumerate(source.splitlines(), 1):
-                  if "Secondly, check if it is zygote process" in line or "alloc_vfsmnt(old->mnt_devname" in line:
-                      print(f"{line_no}: {line}")
-              raise SystemExit(
-                  "port clone_mnt SUSFS mount handling: expected one zygote/unshare region, "
-                  f"found {len(clone_matches)}"
+          # Port clone_mnt by anchoring the edit inside the actual function.
+          # Legion's base patch can leave the original one-argument allocator call
+          # in place because its surrounding source differs from upstream SUSFS.
+          clone_start = source.index("static struct mount *clone_mnt(")
+          clone_end = source.index("\nstatic void cleanup_mnt(", clone_start)
+          clone_func = source[clone_start:clone_end]
+          old_alloc = "\tmnt = alloc_vfsmnt(old->mnt_devname);\n"
+          if clone_func.count(old_alloc) == 1:
+              new_alloc = (
+                  "#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n"
+                  "\t/* Route mount clones through SUSFS-aware mount-ID allocation. */\n"
+                  "\tif (unlikely(is_current_ksu_domain)) {\n"
+                  "\t\tif (!(flag & CL_COPY_MNT_NS)) {\n"
+                  "\t\t\tmnt = alloc_vfsmnt(old->mnt_devname, true, 0);\n"
+                  "\t\t\tgoto bypass_orig_flow;\n"
+                  "\t\t}\n"
+                  "\t\tmnt = alloc_vfsmnt(old->mnt_devname, true, old->mnt_id);\n"
+                  "\t\tif (mnt)\n"
+                  "\t\t\tmnt->mnt.susfs_mnt_id_backup = DEFAULT_SUS_MNT_ID_FOR_KSU_PROC_UNSHARE;\n"
+                  "\t\tgoto bypass_orig_flow;\n"
+                  "\t}\n"
+                  "\tif (likely(is_current_zygote_domain) && (old->mnt_id >= DEFAULT_SUS_MNT_ID)) {\n"
+                  "\t\tmnt = alloc_vfsmnt(old->mnt_devname, true, 0);\n"
+                  "\t\tgoto bypass_orig_flow;\n"
+                  "\t}\n"
+                  "\tif ((flag & CL_COPY_MNT_NS) && (old->mnt_id >= DEFAULT_SUS_MNT_ID)) {\n"
+                  "\t\tmnt = alloc_vfsmnt(old->mnt_devname, true, 0);\n"
+                  "\t\tgoto bypass_orig_flow;\n"
+                  "\t}\n"
+                  "\tmnt = alloc_vfsmnt(old->mnt_devname, false, 0);\n"
+                  "bypass_orig_flow:\n"
+                  "#else\n"
+                  "\tmnt = alloc_vfsmnt(old->mnt_devname);\n"
+                  "#endif\n"
               )
-          new_zygote_clone = (
-              "\t// Lastly, just check if old->mnt_id is sus.\n"
-              "\tif (old->mnt_id >= DEFAULT_SUS_MNT_ID) {\n"
-              "\t\tmnt = alloc_vfsmnt(old->mnt_devname, true, 0);\n"
-              "\t\tgoto bypass_orig_flow;\n"
-              "\t}\n"
-          )
-          source = clone_pattern.sub(lambda _: new_zygote_clone, source, count=1)
+              clone_func = clone_func.replace(old_alloc, new_alloc, 1)
+              source = source[:clone_start] + clone_func + source[clone_end:]
+          elif "alloc_vfsmnt(old->mnt_devname, false, 0);" not in clone_func:
+              raise SystemExit(
+                  "clone_mnt allocator port: expected original one-argument call or an already-ported v1.5.7 call"
+              )
+          if "struct mount *m;" not in clone_func:
+              raise SystemExit("clone_mnt v1.5.7 namespace-walk declarations are missing")
+          if "struct mnt_namespace *mnt_ns;" not in clone_func:
+              raise SystemExit("clone_mnt v1.5.7 namespace-walk declarations are missing")
+          if "int mnt_id;" not in clone_func:
+              raise SystemExit("clone_mnt v1.5.7 namespace-walk declarations are missing")
 
           old_fake_id = (
               "#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n"
