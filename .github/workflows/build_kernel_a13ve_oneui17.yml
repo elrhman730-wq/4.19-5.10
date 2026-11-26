@@ -48,9 +48,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if grep -nE -- '--enable[[:space:]]+KPM|CONFIG_KPM=y|KPM_ENABLE=true|set_memory_to_49_and_low' \
-            .github/workflows/build_kernel_a13ve_oneui17.yml Profiles/a13ve_oneui17.env; then
-            echo "KPM configuration or KPM-only patch reference found." >&2
+          if grep -nE -- '--enable[[:space:]]+KPM|set_memory_to_49_and_low' \
+            .github/workflows/build_kernel_a13ve_oneui17.yml; then
+            echo "KPM enablement or KPM-only patch reference found in the build." >&2
+            exit 1
+          fi
+          if grep -nE '^KPM_ENABLE=true$|^KPM_PATCH_SOURCE=' Profiles/a13ve_oneui17.env; then
+            echo "KPM must remain disabled in the A13VE profile." >&2
             exit 1
           fi
           echo "KPM is excluded from the A13VE build."
