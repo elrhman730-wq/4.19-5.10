@@ -138,11 +138,10 @@ jobs:
               raise SystemExit("SukiSU dispatch.c not found")
           d = dispatch.read_text()
           if "SUSFS_MAGIC" in d and "#include <linux/susfs.h>" not in d:
-              marker = "#include <linux/version.h>\n"
-              if d.count(marker) != 1:
-                  raise SystemExit("SUSFS dispatch include anchor is not unique")
-              d = d.replace(marker, marker + "#include <linux/susfs.h>\n", 1)
-              dispatch.write_text(d)
+              # Do not rely on a unique version.h anchor; upstream dispatch.c
+              # may include it in multiple conditional sections.
+              # linux/susfs.h is self-contained and safe at file scope.
+              dispatch.write_text("#include <linux/susfs.h>\\n" + d)
 
           # KPM is excluded from this build. Prevent its implementation from
           # being textually compiled into ksu_main.c when CONFIG_KPM is unset.
