@@ -291,7 +291,7 @@ jobs:
           # to vfs_create_mount(). Keep its SUSFS-aware allocator selection, but
           # remove clone-only namespace-walk locals/logic from that function.
           vfs_start = source.index("struct vfsmount *vfs_create_mount(")
-          vfs_end = source.index("\nEXPORT_SYMBOL_GPL(vfs_create_mount);", vfs_start)
+          vfs_end = source.index("\nEXPORT_SYMBOL(vfs_create_mount);", vfs_start)
           vfs_func = source[vfs_start:vfs_end]
           vfs_func = vfs_func.replace(
               "\tstruct mount *m;\n\tstruct mnt_namespace *mnt_ns;\n\tint mnt_id;\n", ""
