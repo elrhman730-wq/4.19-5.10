@@ -212,8 +212,8 @@ jobs:
           # Match the semantic zygote/unshare region, independent of comment whitespace.
           import re
           clone_pattern = re.compile(
-              r"(?ms)^[ \\t]*// Secondly, check if it is zygote process.*?"
-              r"(?=^[ \\t]*mnt[ \\t]*=[ \\t]*alloc_vfsmnt\\(old->mnt_devname,[ \\t]*false,[ \\t]*0\\);)"
+              r"(?ms)^[ \t]*// Secondly, check if it is zygote process.*?"
+              r"(?=^[ \t]*mnt[ \t]*=[ \t]*alloc_vfsmnt\\(old->mnt_devname,[ \t]*false,[ \t]*0\\);)"
           )
           clone_matches = list(clone_pattern.finditer(source))
           if len(clone_matches) != 1:
