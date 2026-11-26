@@ -503,7 +503,7 @@ index 0e25713d09fa..151e574ed026 100644
  	lock_mount_hash();
  	list_add_tail(&mnt->mnt_instance, &mnt->mnt.mnt_sb->s_mounts);
  	unlock_mount_hash();
-@@ -1009,7 +1127,52 @@ static struct mount *clone_mnt(struct mount *old, struct dentry *root,
+@@ -1169,7 +1227,52 @@ static struct mount *clone_mnt(struct mount *old, struct dentry *root,
  	struct mount *mnt;
  	int err;
  
@@ -556,7 +556,7 @@ index 0e25713d09fa..151e574ed026 100644
  	if (!mnt)
  		return ERR_PTR(-ENOMEM);
  
-@@ -1061,1 +1252,9 @@ static struct mount *clone_mnt(struct mount *old, struct dentry *root,
+@@ -1252,1 +1310,9 @@ static struct mount *clone_mnt(struct mount *old, struct dentry *root,
  	mnt->mnt_parent = mnt;
 +
 +#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
