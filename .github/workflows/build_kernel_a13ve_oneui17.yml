@@ -166,7 +166,9 @@ jobs:
             '^CONFIG_KSU_HACK_ARM64_BRANCH_LINK=y$' \
             out/.config
 
-          grep -q '^CONFIG_KSU_SUSFS=y
+          grep -q '^CONFIG_KSU_SUSFS=y$' out/.config
+
+          grep -q '^CONFIG_KPM=y$' out/.config
 
           grep -q '^CONFIG_KALLSYMS=y$' out/.config
 
