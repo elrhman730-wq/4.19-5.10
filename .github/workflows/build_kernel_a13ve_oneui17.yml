@@ -2,6 +2,12 @@
 name: Build A13VE Kernel - SukiSU Ultra + SUSFS
 
 on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/build_kernel_a13ve_oneui17.yml'
+      - 'Profiles/a13ve_oneui17.env'
+      - 'Patches/**'
   workflow_dispatch:
 
 permissions:
@@ -145,7 +151,7 @@ jobs:
             --enable KSU \
             --enable KSU_HACK_ARM64_BRANCH_LINK \
             --enable KSU_SUSFS \
-            --enable KPM \
+            --disable KPM \
             --enable KALLSYMS \
             --enable KALLSYMS_ALL \
             --enable KPROBES \
@@ -157,7 +163,7 @@ jobs:
           echo "=== Kernel configuration ==="
 
           grep -E \
-            'CONFIG_(KSU|KSU_HACK_ARM64_BRANCH_LINK|KSU_SUSFS|KPM|KALLSYMS|KALLSYMS_ALL|KPROBES|KRETPROBES|EXT4_FS)=' \
+            'CONFIG_(KSU|KSU_HACK_ARM64_BRANCH_LINK|KSU_SUSFS|KALLSYMS|KALLSYMS_ALL|KPROBES|KRETPROBES|EXT4_FS)=' \
             out/.config || true
 
           grep -q '^CONFIG_KSU=y$' out/.config
@@ -168,7 +174,281 @@ jobs:
 
           grep -q '^CONFIG_KSU_SUSFS=y$' out/.config
 
-          grep -q '^CONFIG_KPM=y$' out/.config
+          if grep -q '^CONFIG_KPM=y
+          grep -q '^CONFIG_KALLSYMS=y$' out/.config
+
+          grep -q '^CONFIG_KALLSYMS_ALL=y$' out/.config
+
+      - name: Build kernel
+        working-directory: kernel
+        run: |
+          export ARCH=arm64
+          export SUBARCH=arm64
+
+          export CC=clang
+          export CLANG_TRIPLE=aarch64-linux-gnu-
+          export CROSS_COMPILE=aarch64-linux-gnu-
+
+          export LD=ld.lld
+          export LLVM=1
+          export LLVM_IAS=1
+
+          export KCFLAGS=-w
+          export CONFIG_SECTION_MISMATCH_WARN_ONLY=y
+
+          make -s O=out ARCH=arm64 \
+            CC=clang \
+            LLVM=1 LLVM_IAS=1 \
+            -j"$JOBS"
+
+          test -s out/arch/arm64/boot/Image.gz
+
+          gzip -t out/arch/arm64/boot/Image.gz
+
+      - name: Prepare AnyKernel3
+        run: |
+          git clone --depth=1 \
+            https://github.com/osm0sis/AnyKernel3.git \
+            AnyKernel3
+
+          cp kernel/out/arch/arm64/boot/Image.gz \
+            AnyKernel3/Image.gz
+
+          cat > AnyKernel3/anykernel.sh <<'AK'
+          #!/sbin/sh
+
+          properties() { '
+          kernel.string=Legion Kernel for mt6768 - A13VE - SukiSU Ultra - SUSFS
+          do.devicecheck=0
+          do.modules=0
+          do.systemless=1
+          do.cleanup=1
+          do.cleanuponabort=0
+          device.name1=a13ve
+          device.name2=SM-A137F
+          supported.versions=11-17
+          supported.patchlevels=
+          '; }
+
+          block=/dev/block/by-name/boot
+          is_slot_device=0
+          ramdisk_compression=auto
+          patch_vbmeta_flag=auto
+          boot_img_hdr_ver=2
+
+          . tools/ak3-core.sh
+
+          split_boot
+          flash_boot
+          AK
+
+          chmod 0755 AnyKernel3/anykernel.sh
+
+      - name: Package flashable ZIP
+        run: |
+          cd AnyKernel3
+
+          zip -r9 \
+            "$GITHUB_WORKSPACE/A13VE-SukiSU-Ultra-SUSFS.zip" \
+            . \
+            -x "*.git*" "*.github*"
+
+          cd "$GITHUB_WORKSPACE"
+
+          test -s A13VE-SukiSU-Ultra-SUSFS.zip
+
+      - name: Upload kernel ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: A13VE-SukiSU-Ultra-SUSFS
+          path: A13VE-SukiSU-Ultra-SUSFS.zip
+          if-no-files-found: error
+ out/.config
+
+          grep -q '^CONFIG_KPM=y
+
+          grep -q '^CONFIG_KALLSYMS=y$' out/.config
+
+          grep -q '^CONFIG_KALLSYMS_ALL=y$' out/.config
+
+      - name: Build kernel
+        working-directory: kernel
+        run: |
+          export ARCH=arm64
+          export SUBARCH=arm64
+
+          export CC=clang
+          export CLANG_TRIPLE=aarch64-linux-gnu-
+          export CROSS_COMPILE=aarch64-linux-gnu-
+
+          export LD=ld.lld
+          export LLVM=1
+          export LLVM_IAS=1
+
+          export KCFLAGS=-w
+          export CONFIG_SECTION_MISMATCH_WARN_ONLY=y
+
+          make -s O=out ARCH=arm64 \
+            CC=clang \
+            LLVM=1 LLVM_IAS=1 \
+            -j"$JOBS"
+
+          test -s out/arch/arm64/boot/Image.gz
+
+          gzip -t out/arch/arm64/boot/Image.gz
+
+      - name: Prepare AnyKernel3
+        run: |
+          git clone --depth=1 \
+            https://github.com/osm0sis/AnyKernel3.git \
+            AnyKernel3
+
+          cp kernel/out/arch/arm64/boot/Image.gz \
+            AnyKernel3/Image.gz
+
+          cat > AnyKernel3/anykernel.sh <<'AK'
+          #!/sbin/sh
+
+          properties() { '
+          kernel.string=Legion Kernel for mt6768 - A13VE - SukiSU Ultra - SUSFS
+          do.devicecheck=0
+          do.modules=0
+          do.systemless=1
+          do.cleanup=1
+          do.cleanuponabort=0
+          device.name1=a13ve
+          device.name2=SM-A137F
+          supported.versions=11-17
+          supported.patchlevels=
+          '; }
+
+          block=/dev/block/by-name/boot
+          is_slot_device=0
+          ramdisk_compression=auto
+          patch_vbmeta_flag=auto
+          boot_img_hdr_ver=2
+
+          . tools/ak3-core.sh
+
+          split_boot
+          flash_boot
+          AK
+
+          chmod 0755 AnyKernel3/anykernel.sh
+
+      - name: Package flashable ZIP
+        run: |
+          cd AnyKernel3
+
+          zip -r9 \
+            "$GITHUB_WORKSPACE/A13VE-SukiSU-Ultra-SUSFS.zip" \
+            . \
+            -x "*.git*" "*.github*"
+
+          cd "$GITHUB_WORKSPACE"
+
+          test -s A13VE-SukiSU-Ultra-SUSFS.zip
+
+      - name: Upload kernel ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: A13VE-SukiSU-Ultra-SUSFS
+          path: A13VE-SukiSU-Ultra-SUSFS.zip
+          if-no-files-found: error
+ out/.config
+
+          grep -q '^CONFIG_KALLSYMS=y$' out/.config
+
+          grep -q '^CONFIG_KALLSYMS_ALL=y$' out/.config
+
+      - name: Build kernel
+        working-directory: kernel
+        run: |
+          export ARCH=arm64
+          export SUBARCH=arm64
+
+          export CC=clang
+          export CLANG_TRIPLE=aarch64-linux-gnu-
+          export CROSS_COMPILE=aarch64-linux-gnu-
+
+          export LD=ld.lld
+          export LLVM=1
+          export LLVM_IAS=1
+
+          export KCFLAGS=-w
+          export CONFIG_SECTION_MISMATCH_WARN_ONLY=y
+
+          make -s O=out ARCH=arm64 \
+            CC=clang \
+            LLVM=1 LLVM_IAS=1 \
+            -j"$JOBS"
+
+          test -s out/arch/arm64/boot/Image.gz
+
+          gzip -t out/arch/arm64/boot/Image.gz
+
+      - name: Prepare AnyKernel3
+        run: |
+          git clone --depth=1 \
+            https://github.com/osm0sis/AnyKernel3.git \
+            AnyKernel3
+
+          cp kernel/out/arch/arm64/boot/Image.gz \
+            AnyKernel3/Image.gz
+
+          cat > AnyKernel3/anykernel.sh <<'AK'
+          #!/sbin/sh
+
+          properties() { '
+          kernel.string=Legion Kernel for mt6768 - A13VE - SukiSU Ultra - SUSFS
+          do.devicecheck=0
+          do.modules=0
+          do.systemless=1
+          do.cleanup=1
+          do.cleanuponabort=0
+          device.name1=a13ve
+          device.name2=SM-A137F
+          supported.versions=11-17
+          supported.patchlevels=
+          '; }
+
+          block=/dev/block/by-name/boot
+          is_slot_device=0
+          ramdisk_compression=auto
+          patch_vbmeta_flag=auto
+          boot_img_hdr_ver=2
+
+          . tools/ak3-core.sh
+
+          split_boot
+          flash_boot
+          AK
+
+          chmod 0755 AnyKernel3/anykernel.sh
+
+      - name: Package flashable ZIP
+        run: |
+          cd AnyKernel3
+
+          zip -r9 \
+            "$GITHUB_WORKSPACE/A13VE-SukiSU-Ultra-SUSFS.zip" \
+            . \
+            -x "*.git*" "*.github*"
+
+          cd "$GITHUB_WORKSPACE"
+
+          test -s A13VE-SukiSU-Ultra-SUSFS.zip
+
+      - name: Upload kernel ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: A13VE-SukiSU-Ultra-SUSFS
+          path: A13VE-SukiSU-Ultra-SUSFS.zip
+          if-no-files-found: error
+ out/.config; then
+            echo 'ERROR: KPM must remain disabled for this build.' >&2
+            exit 1
+          fi
 
           grep -q '^CONFIG_KALLSYMS=y$' out/.config
 
