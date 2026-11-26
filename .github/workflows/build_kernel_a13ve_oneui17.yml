@@ -236,15 +236,16 @@ jobs:
           if written != d:
               raise SystemExit("SukiSU dispatch compatibility edits were not persisted")
           active_dispatch = written
+          newline = chr(10)
           for command in unsupported_commands:
               start_marker = (
                   "#if 0 /* " + command
-                  + " unavailable in SUSFS v1.5.7 / Linux 4.19 */\\n"
+                  + " unavailable in SUSFS v1.5.7 / Linux 4.19 */" + newline
               )
               start = active_dispatch.find(start_marker)
               if start < 0:
                   raise SystemExit(f"{command}: disabled block missing from written dispatch.c")
-              end_marker = "#endif /* unsupported SUSFS v2 command */\\n"
+              end_marker = "#endif /* unsupported SUSFS v2 command */" + newline
               end = active_dispatch.find(end_marker, start)
               if end < 0:
                   raise SystemExit(f"{command}: disabled block terminator missing from written dispatch.c")
