@@ -349,23 +349,23 @@ jobs:
           # copy_mnt_ns() function, whose Legion body has CONFIG_KDP_NS branches.
           import re
           source = re.sub(
-              r"(?ms)^#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\\n"
-              r"\\s*// Always let clone_mnt\\(\\).*?^#endif\\n",
+              r"(?ms)^#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n"
+              r"\s*// Always let clone_mnt\(\).*?^#endif\n",
               "",
               source,
           )
           source = re.sub(
-              r"(?ms)^#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\\n"
-              r"\\s*// Assign the 'last_entry_mnt_id'.*?^#endif\\n",
+              r"(?ms)^#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n"
+              r"\s*// Assign the 'last_entry_mnt_id'.*?^#endif\n",
               "",
               source,
           )
           copy_start = source.index("struct mnt_namespace *copy_mnt_ns(")
-          copy_end = source.index("\\n/**\\n * create_mnt_ns", copy_start)
+          copy_end = source.index("\n/**\n * create_mnt_ns", copy_start)
           copy_func = source[copy_start:copy_end]
           copy_anchor = (
-              "\\tif (user_ns != ns->user_ns)\\n"
-              "\\t\\tcopy_flags |= CL_SHARED_TO_SLAVE | CL_UNPRIVILEGED;\\n"
+              "\tif (user_ns != ns->user_ns)\n"
+              "\t\tcopy_flags |= CL_SHARED_TO_SLAVE | CL_UNPRIVILEGED;\n"
           )
           if copy_func.count(copy_anchor) != 1:
               raise SystemExit(
@@ -374,9 +374,9 @@ jobs:
           copy_func = copy_func.replace(
               copy_anchor,
               copy_anchor
-              + "#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\\n"
-              + "\\tcopy_flags |= CL_COPY_MNT_NS;\\n"
-              + "#endif\\n",
+              + "#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n"
+              + "\tcopy_flags |= CL_COPY_MNT_NS;\n"
+              + "#endif\n",
               1,
           )
           source = source[:copy_start] + copy_func + source[copy_end:]
