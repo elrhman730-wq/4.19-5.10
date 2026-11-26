@@ -264,25 +264,25 @@ jobs:
               "static struct mount *alloc_vfsmnt_susfs(const char *name, bool should_spoof, int custom_mnt_id)",
           )
           source = source.replace(
-              "static struct mount *alloc_vfsmnt(const char *name)\\n#endif",
-              "static struct mount *alloc_vfsmnt_susfs(const char *name)\\n#endif",
+              "static struct mount *alloc_vfsmnt(const char *name)\n#endif",
+              "static struct mount *alloc_vfsmnt_susfs(const char *name)\n#endif",
           )
           # Convert only the explicit three-argument SUSFS allocation calls.
           source = re.sub(
-              r"\\balloc_vfsmnt\\(([^\\n;]*?),\\s*(true|false),\\s*([^()\\n;]*)\\)",
-              r"alloc_vfsmnt_susfs(\\1, \\2, \\3)",
+              r"\balloc_vfsmnt\(([^\n;]*?),\s*(true|false),\s*([^()\n;]*)\)",
+              r"alloc_vfsmnt_susfs(\1, \2, \3)",
               source,
           )
-          allocator_end = source.index("\\n/*\\n * Most r/o checks on a fs", source.index("static struct mount *alloc_vfsmnt_susfs("))
+          allocator_end = source.index("\n/*\n * Most r/o checks on a fs", source.index("static struct mount *alloc_vfsmnt_susfs("))
           allocator_wrapper = (
-              "\\n#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\\n"
-              "static struct mount *alloc_vfsmnt(const char *name)\\n"
-              "{\\n"
-              "\\treturn alloc_vfsmnt_susfs(name, false, 0);\\n"
-              "}\\n"
-              "#else\\n"
-              "#define alloc_vfsmnt alloc_vfsmnt_susfs\\n"
-              "#endif\\n"
+              "\n#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n"
+              "static struct mount *alloc_vfsmnt(const char *name)\n"
+              "{\n"
+              "\treturn alloc_vfsmnt_susfs(name, false, 0);\n"
+              "}\n"
+              "#else\n"
+              "#define alloc_vfsmnt alloc_vfsmnt_susfs\n"
+              "#endif\n"
           )
           source = source[:allocator_end] + allocator_wrapper + source[allocator_end:]
 
@@ -290,13 +290,13 @@ jobs:
           # to vfs_create_mount(). Keep its SUSFS-aware allocator selection, but
           # remove clone-only namespace-walk locals/logic from that function.
           vfs_start = source.index("struct vfsmount *vfs_create_mount(")
-          vfs_end = source.index("\\nEXPORT_SYMBOL_GPL(vfs_create_mount);", vfs_start)
+          vfs_end = source.index("\nEXPORT_SYMBOL_GPL(vfs_create_mount);", vfs_start)
           vfs_func = source[vfs_start:vfs_end]
           vfs_func = vfs_func.replace(
-              "\\tstruct mount *m;\\n\\tstruct mnt_namespace *mnt_ns;\\n\\tint mnt_id;\\n", ""
+              "\tstruct mount *m;\n\tstruct mnt_namespace *mnt_ns;\n\tint mnt_id;\n", ""
           )
           vfs_func = re.sub(
-              r"(?ms)^\\s*// Calculate the next available fake mount ID in the current namespace\\..*?^#endif\\n",
+              r"(?ms)^\s*// Calculate the next available fake mount ID in the current namespace\..*?^#endif\n",
               "",
               vfs_func,
           )
@@ -305,15 +305,15 @@ jobs:
           # Ensure the state predicates belong to clone_mnt(), not a fuzz-matched
           # neighboring function in the legacy base patch.
           clone_start = source.index("static struct mount *clone_mnt(")
-          clone_end = source.index("\\nstatic void cleanup_mnt(", clone_start)
+          clone_end = source.index("\nstatic void cleanup_mnt(", clone_start)
           clone_func = source[clone_start:clone_end]
           if "bool is_current_ksu_domain = susfs_is_current_ksu_domain();" not in clone_func:
               clone_func = clone_func.replace(
-                  "\\tint err;\\n",
-                  "\\tint err;\\n#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\\n"
-                  "\\tbool is_current_ksu_domain = susfs_is_current_ksu_domain();\\n"
-                  "\\tbool is_current_zygote_domain = susfs_is_current_zygote_domain();\\n"
-                  "#endif\\n",
+                  "\tint err;\n",
+                  "\tint err;\n#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n"
+                  "\tbool is_current_ksu_domain = susfs_is_current_ksu_domain();\n"
+                  "\tbool is_current_zygote_domain = susfs_is_current_zygote_domain();\n"
+                  "#endif\n",
                   1,
               )
           source = source[:clone_start] + clone_func + source[clone_end:]
