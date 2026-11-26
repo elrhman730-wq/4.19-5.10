@@ -468,7 +468,7 @@ index 0e25713d09fa..151e574ed026 100644
  		if (err)
  			goto out_free_cache;
  
-@@ -1070,7 +1070,13 @@ struct vfsmount *vfs_create_mount(struct fs_context *fc)
+@@ -1070,8 +1070,16 @@ struct vfsmount *vfs_create_mount(struct fs_context *fc)
  	if (!fc->root)
  		return ERR_PTR(-EINVAL);
  	sb = fc->root->d_sb;
@@ -485,7 +485,7 @@ index 0e25713d09fa..151e574ed026 100644
  	if (!mnt)
  		return ERR_PTR(-ENOMEM);
  
-@@ -1091,7 +1097,15 @@ struct vfsmount *vfs_create_mount(struct fs_context *fc)
+@@ -1091,8 +1097,17 @@ struct vfsmount *vfs_create_mount(struct fs_context *fc)
  	atomic_inc(&fc->root->d_sb->s_active);
  	mnt->mnt.mnt_sb		= fc->root->d_sb;
  	mnt->mnt.mnt_root	= dget(fc->root);
@@ -1264,7 +1264,7 @@ index faf5a0e2d7cc..0d9c17e7d240 100644
  	struct mutex			futex_exit_mutex;
  #endif
  
-@@ -1436,1 +1436,5 @@ struct task_struct {
+@@ -1436,9 +1436,19 @@ struct task_struct {
 -	ANDROID_KABI_RESERVE(8);
 +#ifdef CONFIG_KSU_SUSFS
 +	ANDROID_KABI_USE(8, u64 susfs_last_fake_mnt_id);
