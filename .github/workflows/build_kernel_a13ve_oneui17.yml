@@ -132,17 +132,23 @@ jobs:
               raise SystemExit("SukiSU static_call compatibility guard: unexpected kernel_includes.h")
           p.write_text(s)
 
-          # SUSFS supercall constants are exported by linux/susfs.h.
+          # SUSFS_MAGIC and CMD_SUSFS_* are declared by susfs_def.h.
+          # Insert after the existing include block, never at byte zero: the
+          # dispatch source may start with a continued function declaration.
           dispatch = Path("KernelSU/kernel/supercall/dispatch.c")
           if not dispatch.exists():
               raise SystemExit("SukiSU dispatch.c not found")
           d = dispatch.read_text()
-          if "SUSFS_MAGIC" in d and "#include <linux/susfs.h>" not in d:
-              # Do not rely on a unique version.h anchor; upstream dispatch.c
-              # may include it in multiple conditional sections.
-              # linux/susfs.h is self-contained and safe at file scope.
-              dispatch.write_text("#include <linux/susfs.h>\n" + d)
-
+          d = d.replace("#include <linux/susfs.h>\\n", "")
+          d = d.replace("#include <linux/susfs_def.h>\\n", "")
+          if "SUSFS_MAGIC" in d:
+              import re
+              includes = list(re.finditer(r"(?m)^#include[ \\t]+[^\\n]+\\n", d))
+              if not includes:
+                  raise SystemExit("SukiSU dispatch.c has no include block for SUSFS header insertion")
+              pos = includes[-1].end()
+              d = d[:pos] + "#include <linux/susfs_def.h>\\n" + d[pos:]
+              dispatch.write_text(d)
           # KPM is excluded from this build. Prevent its implementation from
           # being textually compiled into ksu_main.c when CONFIG_KPM is unset.
           main = Path("KernelSU/kernel/ksu_main.c")
