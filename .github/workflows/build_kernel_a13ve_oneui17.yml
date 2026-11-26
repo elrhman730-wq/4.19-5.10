@@ -151,17 +151,201 @@ jobs:
           echo "Applying SUSFS base patch with bounded context fuzz (maximum 3 lines)..."
           patch --batch --forward --fuzz=3 -p1 < "$patch"
 
-      - name: Upgrade SUSFS to v1.5.7
+      - name: Upgrade SUSFS to v1.5.7 (Legion KDP_NS-aware port)
         working-directory: kernel
         shell: bash
         run: |
           set -euo pipefail
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("fs/namespace.c")
+          source = path.read_text()
+
+          def replace_once(old, new, label):
+              global source
+              count = source.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected exactly one match, found {count}")
+              source = source.replace(old, new, 1)
+
+          # v1.5.7 no longer uses the extra zygote-copy flag.
+          replace_once(
+              "#define CL_ZYGOTE_COPY_MNT_NS BIT(24) /* used by copy_mnt_ns() */\n",
+              "",
+              "remove obsolete zygote namespace flag",
+          )
+
+          # Add the v1.5.7 namespace walk variables to clone_mnt().
+          replace_once(
+              "static struct mount *clone_mnt(struct mount *old, struct dentry *root,\n"
+              "\t\t\t\t\tint flag)\n"
+              "{\n"
+              "#ifdef CONFIG_KDP_NS\n"
+              "\tint ns_flags;\n"
+              "\tstruct super_block *sb = old->mnt->mnt_sb;\n"
+              "#else\n"
+              "\tstruct super_block *sb = old->mnt.mnt_sb;\n"
+              "#endif\n"
+              "\tstruct mount *mnt;\n"
+              "\tint err;\n",
+              "static struct mount *clone_mnt(struct mount *old, struct dentry *root,\n"
+              "\t\t\t\t\tint flag)\n"
+              "{\n"
+              "#ifdef CONFIG_KDP_NS\n"
+              "\tint ns_flags;\n"
+              "\tstruct super_block *sb = old->mnt->mnt_sb;\n"
+              "#else\n"
+              "\tstruct super_block *sb = old->mnt.mnt_sb;\n"
+              "#endif\n"
+              "\tstruct mount *mnt;\n"
+              "\tint err;\n"
+              "#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n"
+              "\tstruct mount *m;\n"
+              "\tstruct mnt_namespace *mnt_ns;\n"
+              "\tint mnt_id;\n"
+              "#endif\n",
+              "add clone_mnt v1.5.7 variables",
+          )
+
+          old_zygote_clone = (
+              "\t// Secondly, check if it is zygote process and no matter it is doing unshare or not\n"
+              "\tif (likely(is_current_zygote_domain) && (old->mnt_id >= DEFAULT_SUS_MNT_ID)) {\n"
+              "\t\t/* Important Note: \n"
+              "\t\t *  - Here we can't determine whether the unshare is called zygisk or not,\n"
+              "\t\t *    so we can only patch out the unshare code in zygisk source code for now\n"
+              "\t\t *  - But at least we can deal with old sus mounts using alloc_vfsmnt()\n"
+              "\t\t */\n"
+              "\t\tmnt = alloc_vfsmnt(old->mnt_devname, true, 0);\n"
+              "\t\tgoto bypass_orig_flow;\n"
+              "\t}\n"
+              "\t// Lastly, for other process that is doing unshare operation, but only deal with old sus mount\n"
+              "\tif ((flag & CL_COPY_MNT_NS) && (old->mnt_id >= DEFAULT_SUS_MNT_ID)) {\n"
+              "\t\tmnt = alloc_vfsmnt(old->mnt_devname, true, 0);\n"
+              "\t\tgoto bypass_orig_flow;\n"
+              "\t}\n"
+          )
+          new_zygote_clone = (
+              "\t// Lastly, just check if old->mnt_id is sus.\n"
+              "\tif (old->mnt_id >= DEFAULT_SUS_MNT_ID) {\n"
+              "\t\tmnt = alloc_vfsmnt(old->mnt_devname, true, 0);\n"
+              "\t\tgoto bypass_orig_flow;\n"
+              "\t}\n"
+          )
+          replace_once(old_zygote_clone, new_zygote_clone, "port clone_mnt SUSFS mount handling")
+
+          old_fake_id = (
+              "#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n"
+              "\t// If caller process is zygote and not doing unshare, so we just reorder the mnt_id\n"
+              "\tif (likely(is_current_zygote_domain) && !(flag & CL_ZYGOTE_COPY_MNT_NS)) {\n"
+              "\t\tmnt->mnt.susfs_mnt_id_backup = mnt->mnt_id;\n"
+              "\t\tmnt->mnt_id = current->susfs_last_fake_mnt_id++;\n"
+              "\t}\n"
+              "#endif\n"
+          )
+          new_fake_id = (
+              "#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n"
+              "\t// Allocate the next available fake mount ID in the current namespace.\n"
+              "\tif (likely(is_current_zygote_domain) && !(flag & CL_COPY_MNT_NS)) {\n"
+              "\t\tmnt_ns = current->nsproxy->mnt_ns;\n"
+              "\t\tif (mnt_ns) {\n"
+              "\t\t\tget_mnt_ns(mnt_ns);\n"
+              "\t\t\trcu_read_lock();\n"
+              "\t\t\tmnt_id = list_first_entry(&mnt_ns->list, struct mount, mnt_list)->mnt_id;\n"
+              "\t\t\tlist_for_each_entry_rcu(m, &mnt_ns->list, mnt_list) {\n"
+              "\t\t\t\tif (m->mnt_id < DEFAULT_SUS_MNT_ID)\n"
+              "\t\t\t\t\tmnt_id++;\n"
+              "\t\t\t}\n"
+              "\t\t\tWRITE_ONCE(mnt->mnt.susfs_mnt_id_backup, READ_ONCE(mnt->mnt_id));\n"
+              "\t\t\tWRITE_ONCE(mnt->mnt_id, READ_ONCE(mnt_id));\n"
+              "\t\t\trcu_read_unlock();\n"
+              "\t\t\tput_mnt_ns(mnt_ns);\n"
+              "\t\t}\n"
+              "\t}\n"
+              "#endif\n"
+          )
+          replace_once(old_fake_id, new_fake_id, "replace legacy clone_mnt fake-ID counter")
+
+          # copy_tree() needs to account for clones before they are attached to mnt_ns->list.
+          replace_once(
+              "struct mount *copy_tree(struct mount *mnt, struct dentry *dentry,\n"
+              "\t\t\t\t\tint flag)\n"
+              "{\n"
+              "\tstruct mount *res, *p, *q, *r, *parent;\n",
+              "struct mount *copy_tree(struct mount *mnt, struct dentry *dentry,\n"
+              "\t\t\t\t\tint flag)\n"
+              "{\n"
+              "\tstruct mount *res, *p, *q, *r, *parent;\n"
+              "#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n"
+              "\tbool is_current_zygote_domain = susfs_is_current_zygote_domain();\n"
+              "#endif\n",
+              "add copy_tree zygote state",
+          )
+          replace_once(
+              "\tlist_for_each_entry(r, &mnt->mnt_mounts, mnt_child) {\n"
+              "\t\tstruct mount *s;\n",
+              "\tlist_for_each_entry(r, &mnt->mnt_mounts, mnt_child) {\n"
+              "\t\tstruct mount *s;\n"
+              "#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n"
+              "\t\tint attach_mnt_count = 0;\n"
+              "#endif\n",
+              "add copy_tree attach counter",
+          )
+          replace_once(
+              "\t\t\tif (IS_ERR(q))\n"
+              "\t\t\t\tgoto out;\n"
+              "\t\t\tlock_mount_hash();\n",
+              "\t\t\tif (IS_ERR(q))\n"
+              "\t\t\t\tgoto out;\n"
+              "#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n"
+              "\t\t\tif (is_current_zygote_domain &&\n"
+              "\t\t\t\t!(flag & CL_COPY_MNT_NS) &&\n"
+              "\t\t\t\tq->mnt_id < DEFAULT_SUS_MNT_ID) {\n"
+              "\t\t\t\tattach_mnt_count++;\n"
+              "\t\t\t\tq->mnt_id += attach_mnt_count;\n"
+              "\t\t\t}\n"
+              "#endif\n"
+              "\t\t\tlock_mount_hash();\n",
+              "add copy_tree pre-attach ID correction",
+          )
+
+          # Keep CL_COPY_MNT_NS for copy_mnt_ns(), but remove the obsolete zygote-only flag.
+          replace_once(
+              "\tcopy_flags |= CL_COPY_MNT_NS;\n"
+              "\tif (is_zygote_pid) {\n"
+              "\t\t// Let clone_mnt() in copy_tree() know copy_mnt_ns() is run by zygote process\n"
+              "\t\tcopy_flags |= CL_ZYGOTE_COPY_MNT_NS;\n"
+              "\t}\n",
+              "\tcopy_flags |= CL_COPY_MNT_NS;\n",
+              "remove zygote-only copy flag",
+          )
+          replace_once(
+              "\t// Assign the 'last_entry_mnt_id' to 'current->susfs_last_fake_mnt_id' for later use.\n"
+              "\t// should be fine here assuming zygote is forking/unsharing app in one single thread.\n"
+              "\t// Or should we put a lock here?\n"
+              "\tcurrent->susfs_last_fake_mnt_id = last_entry_mnt_id;\n",
+              "",
+              "remove obsolete task fake-ID counter",
+          )
+
+          if "CL_ZYGOTE_COPY_MNT_NS" in source:
+              raise SystemExit("obsolete CL_ZYGOTE_COPY_MNT_NS reference remains")
+          if "current->susfs_last_fake_mnt_id" in source:
+              raise SystemExit("obsolete per-task fake mount ID reference remains")
+          if source.count("Allocate the next available fake mount ID in the current namespace.") != 1:
+              raise SystemExit("v1.5.7 clone_mnt mount-ID algorithm was not installed exactly once")
+
+          path.write_text(source)
+          print("SUSFS v1.5.7 namespace logic ported with Legion CONFIG_KDP_NS layout checks.")
+          PY
+
           patch="$GITHUB_WORKSPACE/Patches/Patch/susfs_upgrade_to_157.patch"
-          echo "Checking SUSFS v1.5.7 upgrade patch..."
-          patch --dry-run --batch --forward --fuzz=3 -p1 < "$patch"
-          echo "Applying SUSFS v1.5.7 upgrade patch..."
-          patch --batch --forward --fuzz=3 -p1 < "$patch"
+          echo "Checking SUSFS v1.5.7 version marker patch..."
+          patch --dry-run --batch --forward --fuzz=0 -p1 < "$patch"
+          patch --batch --forward --fuzz=0 -p1 < "$patch"
           grep -q 'SUSFS_VERSION "v1.5.7"' include/linux/susfs.h
+          ! grep -q 'CL_ZYGOTE_COPY_MNT_NS\|current->susfs_last_fake_mnt_id' fs/namespace.c
 
       - name: Configure A13VE kernel
         working-directory: kernel
