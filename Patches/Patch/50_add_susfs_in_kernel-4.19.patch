@@ -485,13 +485,12 @@ index 0e25713d09fa..151e574ed026 100644
  	if (!mnt)
  		return ERR_PTR(-ENOMEM);
  
-@@ -1091,10 +1097,17 @@ struct vfsmount *vfs_create_mount(struct fs_context *fc)
+@@ -1091,9 +1097,16 @@ struct vfsmount *vfs_create_mount(struct fs_context *fc)
  	atomic_inc(&fc->root->d_sb->s_active);
  	mnt->mnt.mnt_sb		= fc->root->d_sb;
  	mnt->mnt.mnt_root	= dget(fc->root);
  	mnt->mnt_mountpoint	= mnt->mnt.mnt_root;
  	mnt->mnt_parent		= mnt;
- 
 +#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
 +	// Preserve the original mount ID while presenting a zygote-local fake ID.
 +	if (susfs_is_current_zygote_domain()) {
@@ -499,7 +498,7 @@ index 0e25713d09fa..151e574ed026 100644
 +		mnt->mnt_id = current->susfs_last_fake_mnt_id++;
 +	}
 +#endif
-+
+ 
  	lock_mount_hash();
  	list_add_tail(&mnt->mnt_instance, &mnt->mnt.mnt_sb->s_mounts);
  	unlock_mount_hash();
