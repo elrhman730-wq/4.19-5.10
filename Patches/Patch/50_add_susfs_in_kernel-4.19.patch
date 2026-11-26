@@ -556,7 +556,7 @@ index 0e25713d09fa..151e574ed026 100644
  	if (!mnt)
  		return ERR_PTR(-ENOMEM);
  
-@@ -1061,1 +1224,9 @@ static struct mount *clone_mnt(struct mount *old, struct dentry *root,
+@@ -1061,1 +1252,9 @@ static struct mount *clone_mnt(struct mount *old, struct dentry *root,
  	mnt->mnt_parent = mnt;
 +
 +#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
