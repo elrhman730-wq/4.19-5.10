@@ -1305,7 +1305,7 @@ index 909045dc07cd..9c10189f0dac 100644
 +extern void susfs_spoof_uname(struct new_utsname *tmp);
 +#endif
  SYSCALL_DEFINE1(newuname, struct new_utsname __user *, name)
-@@ -1295,5 +1298,8 @@ SYSCALL_DEFINE1(newuname, struct new_utsname __user *, name)
+@@ -1295,4 +1298,7 @@ SYSCALL_DEFINE1(newuname, struct new_utsname __user *, name)
  #endif
 +#ifdef CONFIG_KSU_SUSFS_SPOOF_UNAME
 +	susfs_spoof_uname(&tmp);
