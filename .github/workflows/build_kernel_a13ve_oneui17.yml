@@ -153,24 +153,23 @@ jobs:
               )
           # SukiSU builtin's current dispatch speaks the SUSFS v2 reboot ABI,
           # while this 4.19 port intentionally uses the upstream SUSFS v1.5.7
-          # implementation. Provide only the stable ABI constants needed by
-          # the legacy features, and compile-gate v2-only features that have
-          # no implementation in v1.5.7 (SUS_MAP and priority UID filter).
+          # implementation. Supply stable ABI constants for legacy handlers,
+          # and gate v2-only features that have no v1.5.7 implementation.
           compat = (
-              "#include <linux/susfs_def.h>\\n"
-              "#ifndef SUSFS_MAGIC\\n"
-              "#define SUSFS_MAGIC 0xFAFAFAFA\\n"
-              "#endif\\n"
-              "#ifndef CMD_SUSFS_ADD_SUS_PATH_LOOP\\n"
-              "#define CMD_SUSFS_ADD_SUS_PATH_LOOP 0x55553\\n"
-              "#endif\\n"
-              "#ifndef CMD_SUSFS_HIDE_SUS_MNTS_FOR_NON_SU_PROCS\\n"
-              "#ifdef CMD_SUSFS_HIDE_SUS_MNTS_FOR_ALL_PROCS\\n"
-              "#define CMD_SUSFS_HIDE_SUS_MNTS_FOR_NON_SU_PROCS CMD_SUSFS_HIDE_SUS_MNTS_FOR_ALL_PROCS\\n"
-              "#else\\n"
-              "#define CMD_SUSFS_HIDE_SUS_MNTS_FOR_NON_SU_PROCS 0x55561\\n"
-              "#endif\\n"
-              "#endif\\n"
+              "#include <linux/susfs_def.h>\n"
+              "#ifndef SUSFS_MAGIC\n"
+              "#define SUSFS_MAGIC 0xFAFAFAFA\n"
+              "#endif\n"
+              "#ifndef CMD_SUSFS_ADD_SUS_PATH_LOOP\n"
+              "#define CMD_SUSFS_ADD_SUS_PATH_LOOP 0x55553\n"
+              "#endif\n"
+              "#ifndef CMD_SUSFS_HIDE_SUS_MNTS_FOR_NON_SU_PROCS\n"
+              "#ifdef CMD_SUSFS_HIDE_SUS_MNTS_FOR_ALL_PROCS\n"
+              "#define CMD_SUSFS_HIDE_SUS_MNTS_FOR_NON_SU_PROCS CMD_SUSFS_HIDE_SUS_MNTS_FOR_ALL_PROCS\n"
+              "#else\n"
+              "#define CMD_SUSFS_HIDE_SUS_MNTS_FOR_NON_SU_PROCS 0x55561\n"
+              "#endif\n"
+              "#endif\n"
           )
           if compat not in m:
               m = m.replace(dispatch_include[0], compat + dispatch_include[0], 1)
@@ -183,47 +182,45 @@ jobs:
 
           def guard_unsupported_case(code, command, config):
               pattern = re.compile(
-                  r"(?m)^(?P<indent>[ \\t]*)case " + re.escape(command) +
-                  r":[^\\n]*\\n(?:(?!^(?P=indent)case |^\\s*default:).*(?:\\n|$))*?"
-                  r"^(?P=indent)[ \\t]*return 0;[^\\n]*(?:\\n(?P=indent)[ \\t]*\\})?"
+                  r"(?m)^(?P<indent>[ \t]*)case " + re.escape(command) +
+                  r":[^\n]*\n(?:(?!^(?P=indent)case |^\s*default:).*(?:\n|$))*?"
+                  r"^(?P=indent)[ \t]*return 0;[^\n]*(?:\n(?P=indent)[ \t]*\})?"
               )
               matches = list(pattern.finditer(code))
               if len(matches) > 1:
                   raise SystemExit(f"{command}: expected at most one dispatch case, found {len(matches)}")
               if not matches:
-                  return code
+                  raise SystemExit(f"{command}: expected dispatch case was not found")
               match = matches[0]
               block = match.group(0)
-              if f"#ifdef {config}\\n{block}\\n#endif" not in code:
-                  code = code[:match.start()] + f"#ifdef {config}\\n" + block + f"\\n#endif /* {config} */" + code[match.end():]
+              if f"#ifdef {config}\n{block}\n#endif" not in code:
+                  code = code[:match.start()] + f"#ifdef {config}\n" + block + f"\n#endif /* {config} */" + code[match.end():]
               return code
 
           d = guard_unsupported_case(d, "CMD_SUSFS_ADD_SUS_MAP", "CONFIG_KSU_SUSFS_SUS_MAP")
           d = guard_unsupported_case(d, "CMD_SUSFS_SET_PRIORITY_UID_FILTER", "CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER")
           dispatch.write_text(d)
 
-          # The matching priority-filter userspace hooks are also absent from
-          # SUSFS v1.5.7. Keep the SukiSU code dormant unless its Kconfig feature
-          # is explicitly provided by a future SUSFS implementation.
+          # Priority-filter hooks do not exist in SUSFS v1.5.7.
           observer = Path("KernelSU/kernel/manager/pkg_observer.c")
           if observer.exists():
               o = observer.read_text()
               o = re.sub(
-                  r"(?m)^([ \\t]*)susfs_parse_priority_app_strings\\(\\);$",
-                  r"\\1#ifdef CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER\\n\\1susfs_parse_priority_app_strings();\\n\\1#endif",
+                  r"(?m)^([ \t]*)susfs_parse_priority_app_strings\(\);$",
+                  r"\1#ifdef CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER\n\1susfs_parse_priority_app_strings();\n\1#endif",
                   o,
               )
               observer.write_text(o)
 
-          # Fail closed if any unsupported v2-only dispatch remains unguarded.
+          # Validate that v2-only commands are compile-gated for legacy SUSFS.
           for source, command, config in (
               (d, "CMD_SUSFS_ADD_SUS_MAP", "CONFIG_KSU_SUSFS_SUS_MAP"),
               (d, "CMD_SUSFS_SET_PRIORITY_UID_FILTER", "CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER"),
           ):
-              if re.search(r"(?m)^\\s*case " + re.escape(command) + r":", source):
+              if re.search(r"(?m)^\s*case " + re.escape(command) + r":", source):
                   if f"#ifdef {config}" not in source:
                       raise SystemExit(f"{command} remains unguarded for legacy SUSFS")
-          print("SukiSU legacy SUSFS compatibility: v1.5.7 ABI constants supplied; v2-only features gated.")
+          print("SukiSU legacy SUSFS compatibility checks passed.")
           kpm_lines = re.findall(r"(?m)^[ \t]*#include[^\n]*extension/kpm/kpm\.c[^\n]*\n", m)
           if len(kpm_lines) == 1:
               line = kpm_lines[0]
