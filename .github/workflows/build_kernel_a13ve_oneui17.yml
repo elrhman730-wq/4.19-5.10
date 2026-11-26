@@ -213,10 +213,14 @@ jobs:
           import re
           clone_pattern = re.compile(
               r"(?ms)^[ \t]*// Secondly, check if it is zygote process.*?"
-              r"(?=^[ \t]*mnt[ \t]*=[ \t]*alloc_vfsmnt\\(old->mnt_devname,[ \t]*false,[ \t]*0\\);)"
+              r"(?=^[ \t]*mnt[ \t]*=[ \t]*alloc_vfsmnt\(old->mnt_devname,[ \t]*false,[ \t]*0\);)"
           )
           clone_matches = list(clone_pattern.finditer(source))
           if len(clone_matches) != 1:
+              print("DEBUG: clone_mnt SUSFS region candidates:")
+              for line_no, line in enumerate(source.splitlines(), 1):
+                  if "Secondly, check if it is zygote process" in line or "alloc_vfsmnt(old->mnt_devname" in line:
+                      print(f"{line_no}: {line}")
               raise SystemExit(
                   "port clone_mnt SUSFS mount handling: expected one zygote/unshare region, "
                   f"found {len(clone_matches)}"
