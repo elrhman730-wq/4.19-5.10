@@ -180,26 +180,50 @@ jobs:
               raise SystemExit("SukiSU supercall/dispatch.c not found")
           d = dispatch.read_text()
 
-          def guard_unsupported_case(code, command, config):
+          def disable_unsupported_case(code, command):
+              # SukiSU builtin dispatch contains SUSFS v2 commands that do not
+              # exist in the SUSFS v1.5.7 4.19 ABI. Disable the complete switch
+              # arm (label, handler body, and break/return) rather than inventing
+              # command numbers or aliasing unrelated ABI operations.
               pattern = re.compile(
-                  r"(?m)^(?P<indent>[ \t]*)case " + re.escape(command) +
-                  r":[^\n]*\n(?:(?!^(?P=indent)case |^\s*default:).*(?:\n|$))*?"
-                  r"^(?P=indent)[ \t]*return 0;[^\n]*(?:\n(?P=indent)[ \t]*\})?"
+                  r"(?ms)^(?P<indent>[ \\t]*)case[ \\t]+" + re.escape(command) +
+                  r"[ \\t]*:[^\\n]*\\n(?P<body>.*?)(?=^[ \\t]*(?:case[ \\t]+[^:\\n]+:|default[ \\t]*:))"
               )
               matches = list(pattern.finditer(code))
-              if len(matches) > 1:
-                  raise SystemExit(f"{command}: expected at most one dispatch case, found {len(matches)}")
-              if not matches:
-                  raise SystemExit(f"{command}: expected dispatch case was not found")
+              if len(matches) != 1:
+                  raise SystemExit(f"{command}: expected exactly one complete switch arm, found {len(matches)}")
               match = matches[0]
               block = match.group(0)
-              if f"#ifdef {config}\n{block}\n#endif" not in code:
-                  code = code[:match.start()] + f"#ifdef {config}\n" + block + f"\n#endif /* {config} */" + code[match.end():]
+              if "SUSFS v1.5.7 / Linux 4.19" not in block:
+                  wrapped = (
+                      "#if 0 /* " + command + " is unavailable in SUSFS v1.5.7 / Linux 4.19 */\\n"
+                      + block
+                      + "#endif /* unsupported SUSFS v2 command */\\n"
+                  )
+                  code = code[:match.start()] + wrapped + code[match.end():]
               return code
 
-          d = guard_unsupported_case(d, "CMD_SUSFS_ADD_SUS_MAP", "CONFIG_KSU_SUSFS_SUS_MAP")
-          d = guard_unsupported_case(d, "CMD_SUSFS_SET_PRIORITY_UID_FILTER", "CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER")
-          dispatch.write_text(d)
+          for command in (
+              "CMD_SUSFS_ADD_SUS_MAP",
+              "CMD_SUSFS_SET_PRIORITY_UID_FILTER",
+              "CMD_SUSFS_ENABLE_AVC_LOG_SPOOFING",
+          ):
+              d = disable_unsupported_case(d, command)
+
+          # Verify each unsupported command is present only inside an explicitly
+          # disabled compatibility block; fail closed if the source layout changes.
+          disabled_blocks = re.findall(r"(?ms)^#if 0 /\\* .*?^#endif /\\* unsupported SUSFS v2 command \\*/\\n", d)
+          disabled_source = "\\n".join(disabled_blocks)
+          if len(disabled_blocks) != 3:
+              raise SystemExit(f"expected 3 disabled SUSFS v2 switch arms, found {len(disabled_blocks)}")
+          for command in (
+              "CMD_SUSFS_ADD_SUS_MAP",
+              "CMD_SUSFS_SET_PRIORITY_UID_FILTER",
+              "CMD_SUSFS_ENABLE_AVC_LOG_SPOOFING",
+          ):
+              if not re.search(r"(?m)^\\s*case[ \\t]+" + re.escape(command) + r"[ \\t]*:", disabled_source):
+                  raise SystemExit(f"{command}: disabled switch arm validation failed")
+
 
           # Priority-filter hooks do not exist in SUSFS v1.5.7.
           observer = Path("KernelSU/kernel/manager/pkg_observer.c")
