@@ -10,48 +10,6 @@ index 4d662673fe36..80c71db78ea7 100644
  #define CL_COPY_MNT_NS BIT(25) /* used by copy_mnt_ns() */
  #endif
  
-@@ -1048,7 +1047,12 @@ vfs_kern_mount(struct file_system_type *type, int flags, const char *name, void
- {
- 	struct mount *mnt;
- 	struct dentry *root;
--
-+#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
-+	struct mount *m;
-+	struct mnt_namespace *mnt_ns;
-+	int mnt_id;
-+#endif
-+	
- 	if (!type)
- 		return ERR_PTR(-ENODEV);
- 
-@@ -1090,10 +1094,24 @@ vfs_kern_mount(struct file_system_type *type, int flags, const char *name, void
- 	mnt->mnt_parent = mnt;
- 
- #ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
--	// If caller process is zygote, then it is a normal mount, so we just reorder the mnt_id
-+	// - If caller process is zygote, then it is a normal mount, so we calculate the next available 
-+	//   fake mnt_id for this mount
- 	if (susfs_is_current_zygote_domain()) {
--		mnt->mnt.susfs_mnt_id_backup = mnt->mnt_id;
--		mnt->mnt_id = current->susfs_last_fake_mnt_id++;
-+		mnt_ns = current->nsproxy->mnt_ns;
-+		if (mnt_ns) {
-+			get_mnt_ns(mnt_ns);
-+			rcu_read_lock();
-+			mnt_id = list_first_entry(&mnt_ns->list, struct mount, mnt_list)->mnt_id;
-+			list_for_each_entry_rcu(m, &mnt_ns->list, mnt_list) {
-+				if (m->mnt_id < DEFAULT_SUS_MNT_ID) {
-+					mnt_id++;
-+				}
-+			}
-+			WRITE_ONCE(mnt->mnt.susfs_mnt_id_backup, READ_ONCE(mnt->mnt_id));
-+			WRITE_ONCE(mnt->mnt_id, READ_ONCE(mnt_id));
-+			rcu_read_unlock();
-+			put_mnt_ns(mnt_ns);
-+		}
- 	}
- #endif
- 
 @@ -1127,6 +1145,10 @@ static struct mount *clone_mnt(struct mount *old, struct dentry *root,
  	int err;
  
@@ -197,18 +155,6 @@ index 4d662673fe36..80c71db78ea7 100644
  #endif
  
  	namespace_unlock();
-diff --git a/include/linux/sched.h b/include/linux/sched.h
-index 82ed517a1a10..0b843100e71a 100644
---- a/include/linux/sched.h
-+++ b/include/linux/sched.h
-@@ -1515,7 +1515,6 @@ struct task_struct {
- 	 */
- #ifdef CONFIG_KSU_SUSFS
- 	u64 susfs_task_state;
--	u64 susfs_last_fake_mnt_id;
- #endif
- 	randomized_struct_fields_end
- 
 diff --git a/include/linux/susfs.h b/include/linux/susfs.h
 index ef31283dbc41..76382cdab072 100644
 --- a/include/linux/susfs.h

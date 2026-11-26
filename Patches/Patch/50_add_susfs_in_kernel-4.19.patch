@@ -468,7 +468,17 @@ index 0e25713d09fa..151e574ed026 100644
  		if (err)
  			goto out_free_cache;
  
-@@ -1070,8 +1070,16 @@ struct vfsmount *vfs_create_mount(struct fs_context *fc)
+@@ -1065,3 +1065,8 @@ struct vfsmount *vfs_create_mount(struct fs_context *fc)
+ {
+ 	struct mount *mnt;
+ 	struct super_block *sb;
++#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
++	struct mount *m;
++	struct mnt_namespace *mnt_ns;
++	int mnt_id;
++#endif
+
+@@ -1070,8 +1075,16 @@ struct vfsmount *vfs_create_mount(struct fs_context *fc)
  	if (!fc->root)
  		return ERR_PTR(-EINVAL);
  	sb = fc->root->d_sb;
@@ -485,24 +495,36 @@ index 0e25713d09fa..151e574ed026 100644
  	if (!mnt)
  		return ERR_PTR(-ENOMEM);
  
-@@ -1091,9 +1097,16 @@ struct vfsmount *vfs_create_mount(struct fs_context *fc)
+@@ -1091,9 +1102,28 @@ struct vfsmount *vfs_create_mount(struct fs_context *fc)
  	atomic_inc(&fc->root->d_sb->s_active);
  	mnt->mnt.mnt_sb		= fc->root->d_sb;
  	mnt->mnt.mnt_root	= dget(fc->root);
  	mnt->mnt_mountpoint	= mnt->mnt.mnt_root;
  	mnt->mnt_parent		= mnt;
 +#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
-+	// Preserve the original mount ID while presenting a zygote-local fake ID.
++	// Calculate the next available fake mount ID in the current namespace.
 +	if (susfs_is_current_zygote_domain()) {
-+		mnt->mnt.susfs_mnt_id_backup = mnt->mnt_id;
-+		mnt->mnt_id = current->susfs_last_fake_mnt_id++;
++		mnt_ns = current->nsproxy->mnt_ns;
++		if (mnt_ns) {
++			get_mnt_ns(mnt_ns);
++			rcu_read_lock();
++			mnt_id = list_first_entry(&mnt_ns->list, struct mount, mnt_list)->mnt_id;
++			list_for_each_entry_rcu(m, &mnt_ns->list, mnt_list) {
++				if (m->mnt_id < DEFAULT_SUS_MNT_ID)
++					mnt_id++;
++			}
++			WRITE_ONCE(mnt->mnt.susfs_mnt_id_backup, READ_ONCE(mnt->mnt_id));
++			WRITE_ONCE(mnt->mnt_id, READ_ONCE(mnt_id));
++			rcu_read_unlock();
++			put_mnt_ns(mnt_ns);
++		}
 +	}
 +#endif
  
  	lock_mount_hash();
  	list_add_tail(&mnt->mnt_instance, &mnt->mnt.mnt_sb->s_mounts);
  	unlock_mount_hash();
-@@ -1169,7 +1227,52 @@ static struct mount *clone_mnt(struct mount *old, struct dentry *root,
+@@ -1169,7 +1246,52 @@ static struct mount *clone_mnt(struct mount *old, struct dentry *root,
  	struct mount *mnt;
  	int err;
  
@@ -555,7 +577,7 @@ index 0e25713d09fa..151e574ed026 100644
  	if (!mnt)
  		return ERR_PTR(-ENOMEM);
  
-@@ -1252,4 +1310,13 @@ static struct mount *clone_mnt(struct mount *old, struct dentry *root,
+@@ -1252,4 +1329,13 @@ static struct mount *clone_mnt(struct mount *old, struct dentry *root,
  	mnt->mnt_parent = mnt;
 +
 +#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
@@ -569,7 +591,7 @@ index 0e25713d09fa..151e574ed026 100644
  	lock_mount_hash();
  	list_add_tail(&mnt->mnt_instance, &sb->s_mounts);
  	unlock_mount_hash();
-@@ -2282,6 +2454,27 @@ static int do_loopback(struct path *path, const char *old_name,
+@@ -2282,6 +2473,27 @@ static int do_loopback(struct path *path, const char *old_name,
  		umount_tree(mnt, UMOUNT_SYNC);
  		unlock_mount_hash();
  	}
@@ -597,7 +619,7 @@ index 0e25713d09fa..151e574ed026 100644
  out2:
  	unlock_mount(mp);
  out:
-@@ -2881,6 +3074,15 @@ long do_mount(const char *dev_name, const char __user *dir_name,
+@@ -2881,6 +3093,15 @@ long do_mount(const char *dev_name, const char __user *dir_name,
  	else
  		retval = do_new_mount(&path, type_page, sb_flags, mnt_flags,
  				      dev_name, data_page);
@@ -613,7 +635,7 @@ index 0e25713d09fa..151e574ed026 100644
  dput_out:
  	path_put(&path);
  	return retval;
-@@ -2958,6 +3160,10 @@ struct mnt_namespace *copy_mnt_ns(unsigned long flags, struct mnt_namespace *ns,
+@@ -2958,6 +3179,10 @@ struct mnt_namespace *copy_mnt_ns(unsigned long flags, struct mnt_namespace *ns,
  	struct mount *old;
  	struct mount *new;
  	int copy_flags;
@@ -624,7 +646,7 @@ index 0e25713d09fa..151e574ed026 100644
  
  	BUG_ON(!ns);
  
-@@ -2977,6 +3183,15 @@ struct mnt_namespace *copy_mnt_ns(unsigned long flags, struct mnt_namespace *ns,
+@@ -2977,6 +3202,15 @@ struct mnt_namespace *copy_mnt_ns(unsigned long flags, struct mnt_namespace *ns,
  	copy_flags = CL_COPY_UNBINDABLE | CL_EXPIRE;
  	if (user_ns != ns->user_ns)
  		copy_flags |= CL_SHARED_TO_SLAVE | CL_UNPRIVILEGED;
@@ -640,7 +662,7 @@ index 0e25713d09fa..151e574ed026 100644
  	new = copy_tree(old, old->mnt.mnt_root, copy_flags);
  	if (IS_ERR(new)) {
  		namespace_unlock();
-@@ -3013,6 +3228,29 @@ struct mnt_namespace *copy_mnt_ns(unsigned long flags, struct mnt_namespace *ns,
+@@ -3013,6 +3247,29 @@ struct mnt_namespace *copy_mnt_ns(unsigned long flags, struct mnt_namespace *ns,
  		while (p->mnt.mnt_root != q->mnt.mnt_root)
  			p = next_mnt(p, old);
  	}
@@ -670,7 +692,7 @@ index 0e25713d09fa..151e574ed026 100644
  	namespace_unlock();
  
  	if (rootmnt)
-@@ -3559,3 +3797,37 @@ const struct proc_ns_operations mntns_operations = {
+@@ -3559,3 +3816,37 @@ const struct proc_ns_operations mntns_operations = {
  	.install	= mntns_install,
  	.owner		= mntns_owner,
  };
@@ -1260,14 +1282,6 @@ index faf5a0e2d7cc..0d9c17e7d240 100644
 +#endif
  	struct mutex			futex_exit_mutex;
  #endif
- 
-@@ -1436,2 +1443,6 @@ struct task_struct {
--	ANDROID_KABI_RESERVE(8);
-+#ifdef CONFIG_KSU_SUSFS
-+	ANDROID_KABI_USE(8, u64 susfs_last_fake_mnt_id);
-+#else
-+	ANDROID_KABI_RESERVE(8);
-+#endif
  
 diff --git a/kernel/kallsyms.c b/kernel/kallsyms.c
 index b8ec1dbd1be5..6c48a53a88ea 100644
