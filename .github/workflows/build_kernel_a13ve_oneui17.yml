@@ -404,8 +404,20 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # The Legion Makefile defaults to a non-existent bundled Clang r383902.
+          # Explicitly select the installed Proton Clang and LLVM toolchain.
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export CC=clang
+          export LD=ld.lld
+          export LLVM=1
+          export LLVM_IAS=1
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CLANG_TRIPLE=aarch64-linux-gnu-
+          clang --version
+          command -v aarch64-linux-gnu-ld
           mkdir -p out
-          make O=out ARCH=arm64 "$DEFCONFIG"
+          make O=out ARCH=arm64 CC=clang LD=ld.lld LLVM=1 LLVM_IAS=1 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- "$DEFCONFIG"
           scripts/config --file out/.config \
             --enable ARM64 \
             --enable 64BIT \
@@ -417,7 +429,7 @@ jobs:
             --enable KRETPROBES \
             --enable EXT4_FS \
             --disable KPM
-          make O=out ARCH=arm64 olddefconfig
+          make O=out ARCH=arm64 CC=clang LD=ld.lld LLVM=1 LLVM_IAS=1 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- olddefconfig
           grep -q '^CONFIG_KSU=y$' out/.config
           grep -q '^CONFIG_KSU_SUSFS=y$' out/.config
           grep -q '^CONFIG_KALLSYMS=y$' out/.config
