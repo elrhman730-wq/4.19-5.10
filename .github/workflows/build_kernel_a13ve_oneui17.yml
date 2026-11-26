@@ -69,8 +69,10 @@ jobs:
     env:
       KERNEL_REPO: https://github.com/AlfCraft07/android_kernel_samsung_mt6768-k419.git
       KERNEL_BRANCH: legion-mt6768
-      KSU_SETUP: https://raw.githubusercontent.com/SukiSU-Ultra/SukiSU-Ultra/main/kernel/setup.sh
-      KSU_BRANCH: builtin
+      # Pin the SUSFS 1.5.7-compatible legacy SukiSU tree. Do not use
+      # its setup.sh: that script clones the official main repository.
+      KSU_REPO: https://github.com/liyafe1997/SukiSU-Ultra.git
+      KSU_COMMIT: f4863b20cc8dc0f8cc67418980f022e43014b598
       SUSFS_BASE_URL: https://gitlab.com/simonpunk/susfs4ksu/-/raw/kernel-4.19/kernel_patches
       DEFCONFIG: a13ve_defconfig
       JOBS: 4
@@ -106,188 +108,54 @@ jobs:
           echo "$GITHUB_WORKSPACE/toolchain/bin" >> "$GITHUB_PATH"
           toolchain/bin/clang --version
 
-      - name: Integrate SukiSU Ultra builtin
+      - name: Integrate pinned SukiSU Ultra SUSFS 1.5.7 tree
         working-directory: kernel
         shell: bash
         run: |
           set -euo pipefail
-          curl -fL "$KSU_SETUP" -o /tmp/sukisu-setup.sh
-          test -s /tmp/sukisu-setup.sh
-          bash /tmp/sukisu-setup.sh "$KSU_BRANCH"
-          test -d KernelSU
-          test -f KernelSU/kernel/Kconfig
-          test -L drivers/kernelsu
 
-          # Linux 4.19 has no static_call API/header. SukiSU only needs this
-          # header on kernels that provide the 5.10 static-call interface.
+          # This legacy branch has a flat kernel/ layout, not the modern
+          # kernel/supercall layout. Pin the exact commit and integrate it
+          # directly instead of invoking its setup.sh (which clones upstream).
+          git clone --filter=blob:none --no-checkout "$KSU_REPO" KernelSU
+          git -C KernelSU fetch --depth=1 origin "$KSU_COMMIT"
+          git -C KernelSU checkout --detach "$KSU_COMMIT"
+          test "$(git -C KernelSU rev-parse HEAD)" = "$KSU_COMMIT"
+          test -s KernelSU/kernel/Kconfig
+          test -s KernelSU/kernel/Makefile
+          test -s KernelSU/kernel/core_hook.c
+          test -s KernelSU/kernel/sucompat.c
+          grep -q 'CMD_SUSFS_SHOW_VERSION' KernelSU/kernel/core_hook.c
+          grep -q 'susfs_init();' KernelSU/kernel/ksu.c
+
+          # Link the actual flat source directory expected by Linux 4.19.
+          mkdir -p drivers
+          ln -s "$(realpath --relative-to="$PWD/drivers" "$PWD/KernelSU/kernel")" drivers/kernelsu
+          grep -qF 'obj-$(CONFIG_KSU) += kernelsu/' drivers/Makefile || \
+            printf '\nobj-$(CONFIG_KSU) += kernelsu/\n' >> drivers/Makefile
+
           python3 - <<'PY'
           from pathlib import Path
-          p = Path("KernelSU/kernel/kernel_includes.h")
+          p = Path("drivers/Kconfig")
           s = p.read_text()
-          old = "#include <linux/static_call.h>"
-          new = "#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)\n#include <linux/static_call.h>\n#endif"
-          if s.count(old) == 1:
-              s = s.replace(old, new, 1)
-          elif s.count(new) != 1:
-              raise SystemExit("SukiSU static_call compatibility guard: unexpected kernel_includes.h")
-          p.write_text(s)
-
-          # KPM is excluded from this build. Prevent its implementation from
-          # being textually compiled into ksu_main.c when CONFIG_KPM is unset.
-          main = Path("KernelSU/kernel/ksu_main.c")
-          if not main.exists():
-              raise SystemExit("SukiSU ksu_main.c not found")
-          m = main.read_text()
-          import re
-          # dispatch.c is textually included by ksu_main.c. Its first blank
-          # line is inside a continued macro, so inserting an include there
-          # makes the preprocessor treat it as macro text and ignore it.
-          # Put SUSFS definitions in the parent translation unit instead.
-          dispatch_include = re.findall(
-              r'(?m)^[ \t]*#include[ \t]*["<][^"\n]*supercall/dispatch\.c[">][^\n]*\n',
-              m,
-          )
-          if len(dispatch_include) != 1:
-              raise SystemExit(
-                  f"SukiSU dispatch.c include anchor: expected one match, found {len(dispatch_include)}"
-              )
-          # SukiSU builtin's current dispatch speaks the SUSFS v2 reboot ABI,
-          # while this 4.19 port intentionally uses the upstream SUSFS v1.5.7
-          # implementation. Supply stable ABI constants for legacy handlers,
-          # and gate v2-only features that have no v1.5.7 implementation.
-          compat = (
-              "#include <linux/susfs_def.h>\n"
-              "#ifndef SUSFS_MAGIC\n"
-              "#define SUSFS_MAGIC 0xFAFAFAFA\n"
-              "#endif\n"
-              "#ifndef CMD_SUSFS_ADD_SUS_PATH_LOOP\n"
-              "#define CMD_SUSFS_ADD_SUS_PATH_LOOP 0x55553\n"
-              "#endif\n"
-              "#ifndef CMD_SUSFS_HIDE_SUS_MNTS_FOR_NON_SU_PROCS\n"
-              "#ifdef CMD_SUSFS_HIDE_SUS_MNTS_FOR_ALL_PROCS\n"
-              "#define CMD_SUSFS_HIDE_SUS_MNTS_FOR_NON_SU_PROCS CMD_SUSFS_HIDE_SUS_MNTS_FOR_ALL_PROCS\n"
-              "#else\n"
-              "#define CMD_SUSFS_HIDE_SUS_MNTS_FOR_NON_SU_PROCS 0x55561\n"
-              "#endif\n"
-              "#endif\n"
-          )
-          if compat not in m:
-              m = m.replace(dispatch_include[0], compat + dispatch_include[0], 1)
-              main.write_text(m)
-
-          dispatch = Path("KernelSU/kernel/supercall/dispatch.c")
-          if not dispatch.exists():
-              raise SystemExit("SukiSU supercall/dispatch.c not found")
-          d = dispatch.read_text()
-
-          def disable_unsupported_case(code, command):
-              # Remove only the complete switch arm for commands absent from
-              # the legacy SUSFS 1.5.7 ABI. Keep the surrounding switch intact.
-              pattern = re.compile(
-                  r"(?ms)^[ \t]*case[ \t]+" + re.escape(command) +
-                  r"[ \t]*:[^\n]*\n.*?(?=^[ \t]*(?:case[ \t]+|default[ \t]*:)|^[ \t]*})"
-              )
-              matches = list(pattern.finditer(code))
-              if len(matches) != 1:
-                  raise SystemExit(
-                      f"{command}: expected one switch arm in SukiSU dispatch.c, found {len(matches)}"
-                  )
-              match = matches[0]
-              block = match.group(0)
-              if "unsupported SUSFS v2 command" not in block:
-                  wrapped = (
-                      "#if 0 /* " + command + " unavailable in SUSFS v1.5.7 / Linux 4.19 */\n"
-                      + block
-                      + "#endif /* unsupported SUSFS v2 command */\n"
-                  )
-                  code = code[:match.start()] + wrapped + code[match.end():]
-              return code
-
-          unsupported_commands = (
-              "CMD_SUSFS_ADD_SUS_MAP",
-              "CMD_SUSFS_SET_PRIORITY_UID_FILTER",
-              "CMD_SUSFS_ENABLE_AVC_LOG_SPOOFING",
-          )
-          for command in unsupported_commands:
-              d = disable_unsupported_case(d, command)
-
-          # Verify that each requested case arm is enclosed in its own
-          # disabled block. These checks use real newline/tab regex escapes.
-          disabled_blocks = re.findall(
-              r"(?ms)^#if 0 /\* .*?^#endif /\* unsupported SUSFS v2 command \*/\n",
-              d,
-          )
-          if len(disabled_blocks) != len(unsupported_commands):
-              raise SystemExit(
-                  f"expected {len(unsupported_commands)} disabled SUSFS arms, found {len(disabled_blocks)}"
-              )
-          disabled_source = "\n".join(disabled_blocks)
-          for command in unsupported_commands:
-              if not re.search(
-                  r"(?m)^[ \t]*case[ \t]+" + re.escape(command) + r"[ \t]*:",
-                  disabled_source,
-              ):
-                  raise SystemExit(f"{command}: disabled switch arm validation failed")
-
-          # Persist the dispatch edits. The earlier version validated only the
-          # in-memory string, leaving the compiler to read the untouched file.
-          dispatch.write_text(d)
-          written = dispatch.read_text()
-          if written != d:
-              raise SystemExit("SukiSU dispatch compatibility edits were not persisted")
-          active_dispatch = written
-          newline = chr(10)
-          for command in unsupported_commands:
-              start_marker = (
-                  "#if 0 /* " + command
-                  + " unavailable in SUSFS v1.5.7 / Linux 4.19 */" + newline
-              )
-              start = active_dispatch.find(start_marker)
-              if start < 0:
-                  raise SystemExit(f"{command}: disabled block missing from written dispatch.c")
-              end_marker = "#endif /* unsupported SUSFS v2 command */" + newline
-              end = active_dispatch.find(end_marker, start)
-              if end < 0:
-                  raise SystemExit(f"{command}: disabled block terminator missing from written dispatch.c")
-              active_dispatch = active_dispatch[:start] + active_dispatch[end + len(end_marker):]
-          for command in unsupported_commands:
-              if ("case " + command + ":") in active_dispatch:
-                  raise SystemExit(f"{command}: unsupported active dispatch case remains on disk")
-          print("SukiSU dispatch compatibility edits persisted and verified on disk.")
-
-          # Priority-filter hooks do not exist in SUSFS v1.5.7.
-          observer = Path("KernelSU/kernel/manager/pkg_observer.c")
-          if observer.exists():
-              o = observer.read_text()
-              o = re.sub(
-                  r"(?m)^([ \t]*)susfs_parse_priority_app_strings\(\);$",
-                  r"\1#ifdef CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER\n\1susfs_parse_priority_app_strings();\n\1#endif",
-                  o,
-              )
-              observer.write_text(o)
-
-          print("SukiSU legacy SUSFS compatibility checks passed.")
-          kpm_lines = re.findall(r"(?m)^[ \t]*#include[^\n]*extension/kpm/kpm\.c[^\n]*\n", m)
-          if len(kpm_lines) == 1:
-              line = kpm_lines[0]
-              if "#ifdef CONFIG_KPM\n" + line not in m:
-                  m = m.replace(line, "#ifdef CONFIG_KPM\n" + line + "#endif /* CONFIG_KPM */\n", 1)
-                  main.write_text(m)
-          elif len(kpm_lines) == 0:
-              if "extension/kpm/kpm.c" in m and "#ifdef CONFIG_KPM" not in m:
-                  raise SystemExit("KPM include exists but could not be isolated")
-          else:
-              raise SystemExit(f"Expected one KPM include, found {len(kpm_lines)}")
+          entry = 'source "drivers/kernelsu/Kconfig"'
+          if entry not in s:
+              pos = s.rfind("endmenu")
+              if pos < 0:
+                  raise SystemExit("drivers/Kconfig has no closing endmenu anchor")
+              s = s[:pos] + entry + "\n" + s[pos:]
+              p.write_text(s)
+          if s.count(entry) != 1:
+              raise SystemExit("drivers/kernelsu Kconfig entry must occur exactly once")
           PY
-          grep -q 'kernelsu' drivers/Makefile
-          grep -q 'drivers/kernelsu/Kconfig' drivers/Kconfig
 
-      - name: Apply non-GKI SukiSU hook integration
-        working-directory: kernel
-        shell: bash
-        run: |
-          set -euo pipefail
-          bash "$GITHUB_WORKSPACE/Patches/normal_patches.sh"
+          test -L drivers/kernelsu
+          test -s drivers/kernelsu/Kconfig
+          test -s drivers/kernelsu/Makefile
+          grep -qF 'obj-$(CONFIG_KSU) += kernelsu/' drivers/Makefile
+          grep -qF 'source "drivers/kernelsu/Kconfig"' drivers/Kconfig
+          echo "Integrated SukiSU commit: $(git -C KernelSU rev-parse HEAD)"
+          echo "SukiSU uses its native KPROBES hooks; legacy normal_patches.sh is intentionally not applied."
 
       - name: Download SUSFS 4.19 source files
         working-directory: kernel
