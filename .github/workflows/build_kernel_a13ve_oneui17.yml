@@ -145,8 +145,10 @@ jobs:
         run: |
           set -euo pipefail
           patch="$GITHUB_WORKSPACE/Patches/Patch/50_add_susfs_in_kernel-4.19.patch"
-          git apply --check "$patch"
-          git apply "$patch"
+          echo "Checking SUSFS base patch against the selected Legion 4.19 source..."
+          patch --dry-run --batch --forward --fuzz=3 -p1 < "$patch"
+          echo "Applying SUSFS base patch with bounded context fuzz (maximum 3 lines)..."
+          patch --batch --forward --fuzz=3 -p1 < "$patch"
 
       - name: Upgrade SUSFS to v1.5.7
         working-directory: kernel
@@ -154,8 +156,10 @@ jobs:
         run: |
           set -euo pipefail
           patch="$GITHUB_WORKSPACE/Patches/Patch/susfs_upgrade_to_157.patch"
-          git apply --check "$patch"
-          git apply "$patch"
+          echo "Checking SUSFS v1.5.7 upgrade patch..."
+          patch --dry-run --batch --forward --fuzz=3 -p1 < "$patch"
+          echo "Applying SUSFS v1.5.7 upgrade patch..."
+          patch --batch --forward --fuzz=3 -p1 < "$patch"
           grep -q 'SUSFS_VERSION "v1.5.7"' include/linux/susfs.h
 
       - name: Configure A13VE kernel
