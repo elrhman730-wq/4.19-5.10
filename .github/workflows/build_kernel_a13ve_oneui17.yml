@@ -1,0 +1,183 @@
+
+name: Build A13VE Kernel - KernelSU Next
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Legion Kernel for SM-A137F
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
+
+    env:
+      KERNEL_REPO: https://github.com/AlfCraft07/android_kernel_samsung_mt6768-k419
+      KERNEL_BRANCH: legion-mt6768
+      KERNEL_CONFIG: a13ve_defconfig
+      KSU_REPO: https://github.com/KernelSU-Next/KernelSU-Next
+      KSU_BRANCH: next
+
+    steps:
+      - name: Checkout Kernel Source
+        uses: actions/checkout@v4
+        with:
+          repository: AlfCraft07/android_kernel_samsung_mt6768-k419
+          ref: legion-mt6768
+          path: kernel
+          fetch-depth: 1
+
+      - name: Install Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            git bc bison flex build-essential \
+            curl wget zip unzip python3 \
+            python-is-python3 \
+            libssl-dev libelf-dev \
+            libncurses-dev \
+            gcc-aarch64-linux-gnu \
+            gcc-arm-linux-gnueabi \
+            clang-11 lld-11 llvm-11 \
+            device-tree-compiler \
+            ccache
+
+      - name: Prepare Clang
+        run: |
+          clang-11 --version
+          ld.lld-11 --version
+          aarch64-linux-gnu-gcc --version
+
+      - name: Remove Old KernelSU
+        working-directory: kernel
+        run: |
+          set -e
+
+          rm -rf drivers/kernelsu
+          rm -rf KernelSU
+          rm -rf KernelSU-Next
+
+          sed -i '/CONFIG_KSU_KPROBES_HOOK=/d' \
+            arch/arm64/configs/${KERNEL_CONFIG}
+
+          sed -i '/CONFIG_KSU_MANUAL_HOOK=/d' \
+            arch/arm64/configs/${KERNEL_CONFIG}
+
+          echo "Old KernelSU integration cleaned."
+
+      - name: Integrate KernelSU Next
+        working-directory: kernel
+        run: |
+          set -e
+
+          git clone --depth=1 \
+            --branch "${KSU_BRANCH}" \
+            "${KSU_REPO}" KernelSU-Next
+
+          test -f KernelSU-Next/kernel/Kconfig
+
+          ln -s ../KernelSU-Next/kernel drivers/kernelsu
+
+          grep -q 'kernelsu' drivers/Makefile || \
+            printf '\nobj-$(CONFIG_KSU) += kernelsu/\n' \
+            >> drivers/Makefile
+
+          grep -q 'drivers/kernelsu/Kconfig' drivers/Kconfig || \
+            sed -i '/endmenu/i source "drivers/kernelsu/Kconfig"' \
+            drivers/Kconfig
+
+          echo "KernelSU Next integration completed."
+
+      - name: Configure Kernel
+        working-directory: kernel
+        run: |
+          set -e
+
+          export ARCH=arm64
+          export LLVM=-11
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+
+          make O=out ${KERNEL_CONFIG}
+
+          ./scripts/config --file out/.config \
+            --enable KSU \
+            --enable KPROBES \
+            --enable KALLSYMS \
+            --enable IKCONFIG \
+            --enable IKCONFIG_PROC
+
+          make O=out olddefconfig
+
+          grep -E 'CONFIG_KSU=|CONFIG_KPROBES=' out/.config
+
+      - name: Build Kernel
+        working-directory: kernel
+        run: |
+          set -e
+
+          export ARCH=arm64
+          export LLVM=-11
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+          export KCFLAGS=-w
+          export CONFIG_SECTION_MISMATCH_WARN_ONLY=y
+
+          make -j"$(nproc --all)" \
+            O=out \
+            LLVM=-11 \
+            ARCH=arm64 \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+            KCFLAGS=-w \
+            CONFIG_SECTION_MISMATCH_WARN_ONLY=y \
+            2>&1 | tee build.log
+
+          test -s out/arch/arm64/boot/Image.gz
+
+      - name: Verify Build
+        working-directory: kernel
+        run: |
+          set -e
+
+          echo "=== Kernel Image ==="
+          ls -lh out/arch/arm64/boot/Image.gz
+
+          echo "=== Kernel Version ==="
+          make O=out kernelversion
+
+          echo "=== KernelSU Configuration ==="
+          grep CONFIG_KSU= out/.config
+
+          echo "=== Device Tree Files ==="
+          find out/arch/arm64/boot/dts \
+            -type f -name '*.dtb' | head -30
+
+      - name: Prepare Build Artifacts
+        working-directory: kernel
+        run: |
+          set -e
+
+          mkdir -p ../artifacts
+
+          cp out/arch/arm64/boot/Image.gz \
+            ../artifacts/Image.gz
+
+          cp out/.config ../artifacts/kernel.config
+
+          cp build.log ../artifacts/build.log
+
+          if [ -d out/arch/arm64/boot/dts ]; then
+            tar -czf ../artifacts/device-tree.tar.gz \
+              -C out/arch/arm64/boot dts
+          fi
+
+      - name: Upload Kernel Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: A13VE-Legion-KernelSU-Next
+          path: artifacts/*
+          if-no-files-found: error
+          retention-days: 14
