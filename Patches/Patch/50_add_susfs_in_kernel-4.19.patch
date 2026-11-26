@@ -524,7 +524,7 @@ index 0e25713d09fa..151e574ed026 100644
  	lock_mount_hash();
  	list_add_tail(&mnt->mnt_instance, &mnt->mnt.mnt_sb->s_mounts);
  	unlock_mount_hash();
-@@ -1160,14 +1237,59 @@ static struct mount *clone_mnt(struct mount *old, struct dentry *root,
+@@ -1160,17 +1237,45 @@ static struct mount *clone_mnt(struct mount *old, struct dentry *root,
  static struct mount *clone_mnt(struct mount *old, struct dentry *root,
  					int flag)
  {
