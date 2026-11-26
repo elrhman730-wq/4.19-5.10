@@ -385,7 +385,7 @@ jobs:
               raise SystemExit("obsolete CL_ZYGOTE_COPY_MNT_NS reference remains")
           if "current->susfs_last_fake_mnt_id" in source:
               raise SystemExit("obsolete per-task fake mount ID reference remains")
-          if source.count("Allocate the next available fake mount ID in the current namespace.") != 1:
+          if source.count("Allocate the next available fake mount ID in this namespace.") != 1:
               raise SystemExit("v1.5.7 clone_mnt mount-ID algorithm was not installed exactly once")
 
           path.write_text(source)
