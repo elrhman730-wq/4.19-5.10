@@ -468,62 +468,6 @@ index 0e25713d09fa..151e574ed026 100644
  		if (err)
  			goto out_free_cache;
  
-@@ -1065,3 +1065,8 @@ struct vfsmount *vfs_create_mount(struct fs_context *fc)
- {
- 	struct mount *mnt;
- 	struct super_block *sb;
-+#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
-+	struct mount *m;
-+	struct mnt_namespace *mnt_ns;
-+	int mnt_id;
-+#endif
-
-@@ -1070,8 +1075,16 @@ struct vfsmount *vfs_create_mount(struct fs_context *fc)
- 	if (!fc->root)
- 		return ERR_PTR(-EINVAL);
- 	sb = fc->root->d_sb;
- 
-+#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
-+	// Route mount allocation through SUSFS-aware ID allocation for KSU.
-+	if (unlikely(susfs_is_current_ksu_domain()))
-+		mnt = alloc_vfsmnt(fc->source ?: "none", true, 0);
-+	else
-+		mnt = alloc_vfsmnt(fc->source ?: "none", false, 0);
-+#else
- 	mnt = alloc_vfsmnt(fc->source ?: "none");
-+#endif
- 	if (!mnt)
- 		return ERR_PTR(-ENOMEM);
- 
-@@ -1091,9 +1102,28 @@ struct vfsmount *vfs_create_mount(struct fs_context *fc)
- 	atomic_inc(&fc->root->d_sb->s_active);
- 	mnt->mnt.mnt_sb		= fc->root->d_sb;
- 	mnt->mnt.mnt_root	= dget(fc->root);
- 	mnt->mnt_mountpoint	= mnt->mnt.mnt_root;
- 	mnt->mnt_parent		= mnt;
-+#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
-+	// Calculate the next available fake mount ID in the current namespace.
-+	if (susfs_is_current_zygote_domain()) {
-+		mnt_ns = current->nsproxy->mnt_ns;
-+		if (mnt_ns) {
-+			get_mnt_ns(mnt_ns);
-+			rcu_read_lock();
-+			mnt_id = list_first_entry(&mnt_ns->list, struct mount, mnt_list)->mnt_id;
-+			list_for_each_entry_rcu(m, &mnt_ns->list, mnt_list) {
-+				if (m->mnt_id < DEFAULT_SUS_MNT_ID)
-+					mnt_id++;
-+			}
-+			WRITE_ONCE(mnt->mnt.susfs_mnt_id_backup, READ_ONCE(mnt->mnt_id));
-+			WRITE_ONCE(mnt->mnt_id, READ_ONCE(mnt_id));
-+			rcu_read_unlock();
-+			put_mnt_ns(mnt_ns);
-+		}
-+	}
-+#endif
- 
- 	lock_mount_hash();
- 	list_add_tail(&mnt->mnt_instance, &mnt->mnt.mnt_sb->s_mounts);
- 	unlock_mount_hash();
 @@ -1169,3 +1169,7 @@ static struct mount *clone_mnt(struct mount *old, struct dentry *root,
  	struct mount *mnt;
  	int err;
