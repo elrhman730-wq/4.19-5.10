@@ -524,23 +524,19 @@ index 0e25713d09fa..151e574ed026 100644
  	lock_mount_hash();
  	list_add_tail(&mnt->mnt_instance, &mnt->mnt.mnt_sb->s_mounts);
  	unlock_mount_hash();
-@@ -1160,17 +1237,45 @@ static struct mount *clone_mnt(struct mount *old, struct dentry *root,
- static struct mount *clone_mnt(struct mount *old, struct dentry *root,
- 					int flag)
- {
- #ifdef CONFIG_KDP_NS
- 	int ns_flags;
- 	struct super_block *sb = old->mnt->mnt_sb;
- #else
- 	struct super_block *sb = old->mnt.mnt_sb;
- #endif
+@@ -1169,3 +1169,7 @@ static struct mount *clone_mnt(struct mount *old, struct dentry *root,
  	struct mount *mnt;
  	int err;
  
 +#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
 +	bool is_current_ksu_domain = susfs_is_current_ksu_domain();
 +	bool is_current_zygote_domain = susfs_is_current_zygote_domain();
-+
++#endif
+@@ -1172,3 +1176,29 @@ static struct mount *clone_mnt(struct mount *old, struct dentry *root,
+-	mnt = alloc_vfsmnt(old->mnt_devname);
+-	if (!mnt)
+-		return ERR_PTR(-ENOMEM);
++#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
 +	/* Route mount clones through SUSFS-aware mount-ID allocation. */
 +	if (unlikely(is_current_ksu_domain)) {
 +		if (!(flag & CL_COPY_MNT_NS)) {
@@ -568,10 +564,6 @@ index 0e25713d09fa..151e574ed026 100644
 +#endif
 +	if (!mnt)
 +		return ERR_PTR(-ENOMEM);
- 
--	mnt = alloc_vfsmnt(old->mnt_devname);
--	if (!mnt)
--		return ERR_PTR(-ENOMEM);
  
 @@ -1252,4 +1329,13 @@ static struct mount *clone_mnt(struct mount *old, struct dentry *root,
  	mnt->mnt_parent = mnt;
@@ -1306,19 +1298,16 @@ diff --git a/kernel/sys.c b/kernel/sys.c
 index 909045dc07cd..9c10189f0dac 100644
 --- a/kernel/sys.c
 +++ b/kernel/sys.c
-@@ -1240,13 +1240,19 @@ static int override_release(char __user *release, size_t len)
+@@ -1265,4 +1265,8 @@ static int override_release(char __user *release, size_t len)
  	return ret;
  }
  
 +#ifdef CONFIG_KSU_SUSFS_SPOOF_UNAME
-+extern void susfs_spoof_uname(struct new_utsname* tmp);
++extern void susfs_spoof_uname(struct new_utsname *tmp);
 +#endif
  SYSCALL_DEFINE1(newuname, struct new_utsname __user *, name)
- {
- 	struct new_utsname tmp;
- 
- 	down_read(&uts_sem);
- 	memcpy(&tmp, utsname(), sizeof(tmp));
+@@ -1295,2 +1299,6 @@ SYSCALL_DEFINE1(newuname, struct new_utsname __user *, name)
+ #endif
 +#ifdef CONFIG_KSU_SUSFS_SPOOF_UNAME
 +	susfs_spoof_uname(&tmp);
 +#endif
