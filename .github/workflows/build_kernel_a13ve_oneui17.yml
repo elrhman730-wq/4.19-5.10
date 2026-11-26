@@ -1,0 +1,198 @@
+
+name: Build A13VE Legion Kernel - SukiSU Ultra + SUSFS + KPM
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
+
+    env:
+      KERNEL_REPO: AlfCraft07/android_kernel_samsung_mt6768-k419
+      KERNEL_BRANCH: legion-mt6768
+      KSU_REPO: KairoVera/SukiSU-Ultra
+      KSU_BRANCH: builtin
+      DEVICE: a13ve
+      ARCH: arm64
+      DEFCONFIG: a13ve_defconfig
+      JOBS: 4
+
+    steps:
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            git curl wget zip unzip bc bison flex \
+            build-essential ccache libssl-dev \
+            libelf-dev python3 python-is-python3 \
+            dwarves device-tree-compiler \
+            rsync lld llvm clang
+
+      - name: Clone kernel source
+        run: |
+          git clone --depth=1 \
+            --branch "$KERNEL_BRANCH" \
+            "https://github.com/$KERNEL_REPO.git" kernel
+
+      - name: Install Proton Clang 13
+        run: |
+          git clone --depth=1 \
+            https://github.com/kdrag0n/proton-clang.git \
+            toolchain
+
+          echo "$GITHUB_WORKSPACE/toolchain/bin" >> "$GITHUB_PATH"
+
+          clang --version
+
+      - name: Integrate SukiSU Ultra builtin
+        working-directory: kernel
+        run: |
+          curl -LSs \
+            https://raw.githubusercontent.com/KairoVera/SukiSU-Ultra/main/kernel/setup.sh \
+            -o /tmp/sukisu-setup.sh
+
+          bash /tmp/sukisu-setup.sh builtin
+
+          test -L drivers/kernelsu
+          test -f KernelSU/kernel/Kconfig
+
+      - name: Check manual hooks patch
+        working-directory: kernel
+        run: |
+          PATCH="patches/sukisu-builtin-hooks.patch"
+
+          if [ ! -f "$PATCH" ]; then
+            echo "::error::Missing $PATCH"
+            echo "SukiSU builtin requires manual kernel hooks."
+            echo "A verified A13VE/Linux 4.19 hook patch must be added before building."
+            exit 1
+          fi
+
+          git apply --check "$PATCH"
+          git apply "$PATCH"
+
+      - name: Configure kernel
+        working-directory: kernel
+        run: |
+          mkdir -p out
+
+          make O=out ARCH=arm64 "$DEFCONFIG"
+
+          CFG="out/.config"
+
+          scripts/config --file "$CFG" \
+            --enable ARM64 \
+            --enable 64BIT \
+            --enable KSU \
+            --disable KSU_KPROBES_HOOK \
+            --enable KSU_SUSFS \
+            --enable KSU_SUSFS_SUS_PATH \
+            --enable KSU_SUSFS_SUS_MOUNT \
+            --enable KSU_SUSFS_SUS_KSTAT \
+            --enable KSU_SUSFS_SPOOF_UNAME \
+            --enable KSU_SUSFS_ENABLE_LOG \
+            --enable KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
+            --enable KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
+            --enable KSU_SUSFS_OPEN_REDIRECT \
+            --enable KSU_SUSFS_SUS_MAP \
+            --enable KSU_SUSFS_PRIORITY_UID_FILTER \
+            --enable KPM \
+            --enable KALLSYMS \
+            --enable KALLSYMS_ALL \
+            --enable KPROBES \
+            --enable EXT4_FS
+
+          make O=out ARCH=arm64 olddefconfig
+
+          grep -E \
+            'CONFIG_(KSU=|KSU_SUSFS=|KPM=|KALLSYMS_ALL=)' \
+            "$CFG"
+
+          grep -q '^CONFIG_KSU=y$' "$CFG"
+          grep -q '^CONFIG_KSU_SUSFS=y$' "$CFG"
+          grep -q '^CONFIG_KPM=y$' "$CFG"
+          grep -q '^CONFIG_KALLSYMS_ALL=y$' "$CFG"
+
+      - name: Build kernel
+        working-directory: kernel
+        run: |
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export CC=clang
+          export CLANG_TRIPLE=aarch64-linux-gnu-
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export LD=ld.lld
+          export LLVM=1
+          export LLVM_IAS=1
+          export KCFLAGS=-w
+          export CONFIG_SECTION_MISMATCH_WARN_ONLY=y
+
+          make -s O=out ARCH=arm64 \
+            CC=clang \
+            LLVM=1 LLVM_IAS=1 \
+            -j"$JOBS"
+
+          test -s out/arch/arm64/boot/Image.gz
+
+      - name: Verify kernel image
+        working-directory: kernel
+        run: |
+          gzip -t out/arch/arm64/boot/Image.gz
+
+          strings out/arch/arm64/boot/Image.gz | \
+            grep -m1 'Linux version' || true
+
+      - name: Prepare AnyKernel3
+        run: |
+          git clone --depth=1 \
+            https://github.com/osm0sis/AnyKernel3.git AnyKernel3
+
+          cp kernel/out/arch/arm64/boot/Image.gz \
+            AnyKernel3/Image.gz
+
+          cat > AnyKernel3/anykernel.sh <<'AK'
+          #!/sbin/sh
+
+          properties() { '
+          kernel.string=Legion A13VE - SukiSU Ultra SUSFS KPM
+          do.devicecheck=0
+          do.modules=0
+          do.systemless=1
+          do.cleanup=1
+          do.cleanuponabort=0
+          device.name1=a13ve
+          device.name2=SM-A137F
+          supported.versions=11-17
+          '; }
+
+          block=/dev/block/by-name/boot
+          is_slot_device=0
+          ramdisk_compression=auto
+          patch_vbmeta_flag=auto
+          boot_img_hdr_ver=2
+
+          . tools/ak3-core.sh
+
+          split_boot
+          flash_boot
+          AK
+
+          chmod 0755 AnyKernel3/anykernel.sh
+
+      - name: Package flashable ZIP
+        run: |
+          cd AnyKernel3
+          zip -r9 "$GITHUB_WORKSPACE/A13VE-SukiSU-SUSFS-KPM.zip" . \
+            -x "*.git*" "*.github*"
+
+      - name: Upload kernel ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: A13VE-SukiSU-SUSFS-KPM
+          path: A13VE-SukiSU-SUSFS-KPM.zip
+          if-no-files-found: error
