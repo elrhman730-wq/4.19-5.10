@@ -139,15 +139,15 @@ jobs:
           if not dispatch.exists():
               raise SystemExit("SukiSU dispatch.c not found")
           d = dispatch.read_text()
-          d = d.replace("#include <linux/susfs.h>\\n", "")
-          d = d.replace("#include <linux/susfs_def.h>\\n", "")
+          d = d.replace("#include <linux/susfs.h>\n", "")
+          d = d.replace("#include <linux/susfs_def.h>\n", "")
           if "SUSFS_MAGIC" in d:
               import re
-              includes = list(re.finditer(r"(?m)^#include[ \\t]+[^\\n]+\\n", d))
+              includes = list(re.finditer(r"(?m)^#include[ \t]+[^\n]+\n", d))
               if not includes:
                   raise SystemExit("SukiSU dispatch.c has no include block for SUSFS header insertion")
               pos = includes[-1].end()
-              d = d[:pos] + "#include <linux/susfs_def.h>\\n" + d[pos:]
+              d = d[:pos] + "#include <linux/susfs_def.h>\n" + d[pos:]
               dispatch.write_text(d)
           # KPM is excluded from this build. Prevent its implementation from
           # being textually compiled into ksu_main.c when CONFIG_KPM is unset.
