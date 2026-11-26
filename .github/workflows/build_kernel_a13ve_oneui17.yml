@@ -117,6 +117,21 @@ jobs:
           test -d KernelSU
           test -f KernelSU/kernel/Kconfig
           test -L drivers/kernelsu
+
+          # Linux 4.19 has no static_call API/header. SukiSU only needs this
+          # header on kernels that provide the 5.10 static-call interface.
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("KernelSU/kernel/kernel_includes.h")
+          s = p.read_text()
+          old = "#include <linux/static_call.h>"
+          new = "#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)\n#include <linux/static_call.h>\n#endif"
+          if s.count(old) == 1:
+              s = s.replace(old, new, 1)
+          elif s.count(new) != 1:
+              raise SystemExit("SukiSU static_call compatibility guard: unexpected kernel_includes.h")
+          p.write_text(s)
+          PY
           grep -q 'kernelsu' drivers/Makefile
           grep -q 'drivers/kernelsu/Kconfig' drivers/Kconfig
 
@@ -301,6 +316,22 @@ jobs:
               "",
               vfs_func,
           )
+          # The legacy 4.19 allocator API is kept for ordinary mounts; only
+          # KernelSU-domain mounts request a SUSFS fake mount ID.
+          vfs_alloc = "\tmnt = alloc_vfsmnt(fc->source ?: \"none\");\n"
+          vfs_alloc_new = (
+              "#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n"
+              "\tif (unlikely(susfs_is_current_ksu_domain()))\n"
+              "\t\tmnt = alloc_vfsmnt(fc->source ?: \"none\", true, 0);\n"
+              "\telse\n"
+              "\t\tmnt = alloc_vfsmnt(fc->source ?: \"none\");\n"
+              "#else\n"
+              "\tmnt = alloc_vfsmnt(fc->source ?: \"none\");\n"
+              "#endif\n"
+          )
+          if vfs_func.count(vfs_alloc) != 1:
+              raise SystemExit(f"vfs_create_mount allocator anchor: expected one match, found {vfs_func.count(vfs_alloc)}")
+          vfs_func = vfs_func.replace(vfs_alloc, vfs_alloc_new, 1)
           source = source[:vfs_start] + vfs_func + source[vfs_end:]
 
           # Ensure the state predicates belong to clone_mnt(), not a fuzz-matched
