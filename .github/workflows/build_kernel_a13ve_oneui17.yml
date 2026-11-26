@@ -257,37 +257,50 @@ jobs:
           if "int mnt_id;" not in clone_func:
               raise SystemExit("clone_mnt v1.5.7 namespace-walk declarations are missing")
 
-          old_fake_id = (
-              "#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n"
-              "\t// If caller process is zygote and not doing unshare, so we just reorder the mnt_id\n"
-              "\tif (likely(is_current_zygote_domain) && !(flag & CL_ZYGOTE_COPY_MNT_NS)) {\n"
-              "\t\tmnt->mnt.susfs_mnt_id_backup = mnt->mnt_id;\n"
-              "\t\tmnt->mnt_id = current->susfs_last_fake_mnt_id++;\n"
-              "\t}\n"
-              "#endif\n"
+          # The legacy base patch's fake-ID hunk was removed because fuzzed
+          # context could place it in vfs_create_mount instead of clone_mnt.
+          # Remove any residual legacy block, then install v1.5.7 at a unique
+          # anchor inside clone_mnt().
+          import re
+          legacy_fake = re.compile(
+              r"(?ms)^#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\\n"
+              r"\\t// If caller process is zygote and not doing unshare,.*?^#endif\\n"
           )
+          source, legacy_count = legacy_fake.subn("", source)
+          if legacy_count > 1:
+              raise SystemExit(f"legacy clone_mnt fake-ID block appeared {legacy_count} times")
+          clone_start = source.index("static struct mount *clone_mnt(")
+          clone_end = source.index("\\nstatic void cleanup_mnt(", clone_start)
+          clone_func = source[clone_start:clone_end]
+          anchor = "\\tmnt->mnt_parent = mnt;\\n"
+          if clone_func.count(anchor) != 1:
+              raise SystemExit(
+                  f"clone_mnt fake-ID insertion anchor: expected one match, found {clone_func.count(anchor)}"
+              )
           new_fake_id = (
-              "#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n"
-              "\t// Allocate the next available fake mount ID in the current namespace.\n"
-              "\tif (likely(is_current_zygote_domain) && !(flag & CL_COPY_MNT_NS)) {\n"
-              "\t\tmnt_ns = current->nsproxy->mnt_ns;\n"
-              "\t\tif (mnt_ns) {\n"
-              "\t\t\tget_mnt_ns(mnt_ns);\n"
-              "\t\t\trcu_read_lock();\n"
-              "\t\t\tmnt_id = list_first_entry(&mnt_ns->list, struct mount, mnt_list)->mnt_id;\n"
-              "\t\t\tlist_for_each_entry_rcu(m, &mnt_ns->list, mnt_list) {\n"
-              "\t\t\t\tif (m->mnt_id < DEFAULT_SUS_MNT_ID)\n"
-              "\t\t\t\t\tmnt_id++;\n"
-              "\t\t\t}\n"
-              "\t\t\tWRITE_ONCE(mnt->mnt.susfs_mnt_id_backup, READ_ONCE(mnt->mnt_id));\n"
-              "\t\t\tWRITE_ONCE(mnt->mnt_id, READ_ONCE(mnt_id));\n"
-              "\t\t\trcu_read_unlock();\n"
-              "\t\t\tput_mnt_ns(mnt_ns);\n"
-              "\t\t}\n"
-              "\t}\n"
-              "#endif\n"
+              "#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\\n"
+              "\\t/* Allocate the next available fake mount ID in this namespace. */\\n"
+              "\\tif (likely(is_current_zygote_domain) && !(flag & CL_COPY_MNT_NS)) {\\n"
+              "\\t\\tmnt_ns = current->nsproxy->mnt_ns;\\n"
+              "\\t\\tif (mnt_ns) {\\n"
+              "\\t\\t\\tget_mnt_ns(mnt_ns);\\n"
+              "\\t\\t\\trcu_read_lock();\\n"
+              "\\t\\t\\tmnt_id = list_first_entry(&mnt_ns->list, struct mount, mnt_list)->mnt_id;\\n"
+              "\\t\\t\\tlist_for_each_entry_rcu(m, &mnt_ns->list, mnt_list) {\\n"
+              "\\t\\t\\t\\tif (m->mnt_id < DEFAULT_SUS_MNT_ID)\\n"
+              "\\t\\t\\t\\t\\tmnt_id++;\\n"
+              "\\t\\t\\t}\\n"
+              "\\t\\t\\tWRITE_ONCE(mnt->mnt.susfs_mnt_id_backup, READ_ONCE(mnt->mnt_id));\\n"
+              "\\t\\t\\tWRITE_ONCE(mnt->mnt_id, READ_ONCE(mnt_id));\\n"
+              "\\t\\t\\trcu_read_unlock();\\n"
+              "\\t\\t\\tput_mnt_ns(mnt_ns);\\n"
+              "\\t\\t}\\n"
+              "\\t}\\n"
+              "#endif\\n"
           )
-          replace_once(old_fake_id, new_fake_id, "replace legacy clone_mnt fake-ID counter")
+          clone_func = clone_func.replace(anchor, anchor + new_fake_id, 1)
+          source = source[:clone_start] + clone_func + source[clone_end:]
+
 
           # copy_tree() needs to account for clones before they are attached to mnt_ns->list.
           replace_once(
