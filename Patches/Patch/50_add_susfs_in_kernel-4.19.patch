@@ -25,7 +25,7 @@ index 98363cb3d4b1..dafafce397fd 100644
  #include "internal.h"
  #include "mount.h"
  
-@@ -2189,6 +2192,11 @@ struct dentry *__d_lookup_rcu(const struct dentry *parent,
+@@ -2189,6 +2183,11 @@ struct dentry *__d_lookup_rcu(const struct dentry *parent,
  				continue;
  			if (dentry_cmp(dentry, str, hashlen_len(hashlen)) != 0)
  				continue;
@@ -37,7 +37,7 @@ index 98363cb3d4b1..dafafce397fd 100644
  		}
  		*seqp = seq;
  		return dentry;
-@@ -2272,6 +2280,12 @@ struct dentry *__d_lookup(const struct dentry *parent, const struct qstr *name)
+@@ -2272,6 +2271,12 @@ struct dentry *__d_lookup(const struct dentry *parent, const struct qstr *name)
  		if (dentry->d_name.hash != hash)
  			continue;
  
@@ -103,7 +103,7 @@ index d7f4c149bd98..19e481760862 100644
  	if ((!sysctl_protected_fifos && S_ISFIFO(inode->i_mode)) ||
  	    (!sysctl_protected_regular && S_ISREG(inode->i_mode)) ||
  	    likely(!(dir_mode & S_ISVTX)) ||
-@@ -1633,6 +1654,12 @@ static struct dentry *__lookup_hash(const struct qstr *name,
+@@ -1633,6 +1645,12 @@ static struct dentry *__lookup_hash(const struct qstr *name,
  		dput(dentry);
  		dentry = old;
  	}
@@ -116,7 +116,7 @@ index d7f4c149bd98..19e481760862 100644
  	return dentry;
  }
  
-@@ -1760,6 +1787,12 @@ static struct dentry *__lookup_slow(const struct qstr *name,
+@@ -1760,6 +1778,12 @@ static struct dentry *__lookup_slow(const struct qstr *name,
  			dentry = old;
  		}
  	}
@@ -129,7 +129,7 @@ index d7f4c149bd98..19e481760862 100644
  	return dentry;
  }
  
-@@ -2250,6 +2283,12 @@ static int link_path_walk(const char *name, struct nameidata *nd)
+@@ -2250,6 +2274,12 @@ static int link_path_walk(const char *name, struct nameidata *nd)
  			}
  			return -ENOTDIR;
  		}
@@ -142,7 +142,7 @@ index d7f4c149bd98..19e481760862 100644
  	}
  }
  
-@@ -2439,6 +2478,12 @@ static int filename_lookup(int dfd, struct filename *name, unsigned flags,
+@@ -2439,6 +2469,12 @@ static int filename_lookup(int dfd, struct filename *name, unsigned flags,
  	if (likely(!retval))
  		audit_inode(name, path->dentry, flags & LOOKUP_PARENT);
  	restore_nameidata();
@@ -155,7 +155,7 @@ index d7f4c149bd98..19e481760862 100644
  	putname(name);
  	return retval;
  }
-@@ -2894,6 +2939,11 @@ static int may_delete(struct inode *dir, struct dentry *victim, bool isdir)
+@@ -2894,6 +2930,11 @@ static int may_delete(struct inode *dir, struct dentry *victim, bool isdir)
  		return error;
  	if (IS_APPEND(dir))
  		return -EPERM;
@@ -167,7 +167,7 @@ index d7f4c149bd98..19e481760862 100644
  
  	if (check_sticky(dir, inode) || IS_APPEND(inode) ||
  	    IS_IMMUTABLE(inode) || IS_SWAPFILE(inode) || HAS_UNMAPPED_ID(inode))
-@@ -2923,8 +2973,20 @@ static int may_delete(struct inode *dir, struct dentry *victim, bool isdir)
+@@ -2923,8 +2964,20 @@ static int may_delete(struct inode *dir, struct dentry *victim, bool isdir)
   */
  static inline int may_create(struct inode *dir, struct dentry *child)
  {
@@ -188,7 +188,7 @@ index d7f4c149bd98..19e481760862 100644
  	if (child->d_inode)
  		return -EEXIST;
  	if (IS_DEADDIR(dir))
-@@ -3037,6 +3099,12 @@ static int may_open(const struct path *path, int acc_mode, int flag)
+@@ -3037,6 +3090,12 @@ static int may_open(const struct path *path, int acc_mode, int flag)
  	if (!inode)
  		return -ENOENT;
  
@@ -201,7 +201,7 @@ index d7f4c149bd98..19e481760862 100644
  	switch (inode->i_mode & S_IFMT) {
  	case S_IFLNK:
  		return -ELOOP;
-@@ -3108,7 +3176,20 @@ static inline int open_to_namei_flags(int flag)
+@@ -3108,7 +3167,20 @@ static inline int open_to_namei_flags(int flag)
  static int may_o_create(const struct path *dir, struct dentry *dentry, umode_t mode)
  {
  	struct user_namespace *s_user_ns;
@@ -222,7 +222,7 @@ index d7f4c149bd98..19e481760862 100644
  	if (error)
  		return error;
  
-@@ -3247,6 +3328,12 @@ static int lookup_open(struct nameidata *nd, struct path *path,
+@@ -3247,6 +3319,12 @@ static int lookup_open(struct nameidata *nd, struct path *path,
  	}
  	if (dentry->d_inode) {
  		/* Cached positive dentry: will open in f_op->open */
@@ -235,7 +235,7 @@ index d7f4c149bd98..19e481760862 100644
  		goto out_no_open;
  	}
  
-@@ -3290,6 +3377,16 @@ static int lookup_open(struct nameidata *nd, struct path *path,
+@@ -3290,6 +3368,16 @@ static int lookup_open(struct nameidata *nd, struct path *path,
  				    mode);
  		if (unlikely(error == -ENOENT) && create_error)
  			error = create_error;
@@ -252,7 +252,7 @@ index d7f4c149bd98..19e481760862 100644
  		return error;
  	}
  
-@@ -3305,6 +3402,12 @@ static int lookup_open(struct nameidata *nd, struct path *path,
+@@ -3305,6 +3393,12 @@ static int lookup_open(struct nameidata *nd, struct path *path,
  			}
  			dput(dentry);
  			dentry = res;
@@ -265,7 +265,7 @@ index d7f4c149bd98..19e481760862 100644
  		}
  	}
  
-@@ -3642,12 +3745,19 @@ static struct file *path_openat(struct nameidata *nd,
+@@ -3642,12 +3736,19 @@ static struct file *path_openat(struct nameidata *nd,
  	return ERR_PTR(error);
  }
  
@@ -285,7 +285,7 @@ index d7f4c149bd98..19e481760862 100644
  
  	set_nameidata(&nd, dfd, pathname);
  	filp = path_openat(&nd, op, flags | LOOKUP_RCU);
-@@ -3655,6 +3765,25 @@ struct file *do_filp_open(int dfd, struct filename *pathname,
+@@ -3655,6 +3756,25 @@ struct file *do_filp_open(int dfd, struct filename *pathname,
  		filp = path_openat(&nd, op, flags);
  	if (unlikely(filp == ERR_PTR(-ESTALE)))
  		filp = path_openat(&nd, op, flags | LOOKUP_REVAL);
@@ -565,21 +565,7 @@ index 0e25713d09fa..151e574ed026 100644
 +	if (!mnt)
 +		return ERR_PTR(-ENOMEM);
  
-@@ -1252,4 +1329,13 @@ static struct mount *clone_mnt(struct mount *old, struct dentry *root,
- 	mnt->mnt_parent = mnt;
-+
-+#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
-+	// If caller process is zygote and not doing unshare, so we just reorder the mnt_id
-+	if (likely(is_current_zygote_domain) && !(flag & CL_ZYGOTE_COPY_MNT_NS)) {
-+		mnt->mnt.susfs_mnt_id_backup = mnt->mnt_id;
-+		mnt->mnt_id = current->susfs_last_fake_mnt_id++;
-+	}
-+#endif
-+
- 	lock_mount_hash();
- 	list_add_tail(&mnt->mnt_instance, &sb->s_mounts);
- 	unlock_mount_hash();
-@@ -2282,6 +2473,27 @@ static int do_loopback(struct path *path, const char *old_name,
+@@ -2282,6 +2464,27 @@ static int do_loopback(struct path *path, const char *old_name,
  		umount_tree(mnt, UMOUNT_SYNC);
  		unlock_mount_hash();
  	}
@@ -607,7 +593,7 @@ index 0e25713d09fa..151e574ed026 100644
  out2:
  	unlock_mount(mp);
  out:
-@@ -2881,6 +3093,15 @@ long do_mount(const char *dev_name, const char __user *dir_name,
+@@ -2881,6 +3084,15 @@ long do_mount(const char *dev_name, const char __user *dir_name,
  	else
  		retval = do_new_mount(&path, type_page, sb_flags, mnt_flags,
  				      dev_name, data_page);
@@ -623,7 +609,7 @@ index 0e25713d09fa..151e574ed026 100644
  dput_out:
  	path_put(&path);
  	return retval;
-@@ -2958,6 +3179,10 @@ struct mnt_namespace *copy_mnt_ns(unsigned long flags, struct mnt_namespace *ns,
+@@ -2958,6 +3170,10 @@ struct mnt_namespace *copy_mnt_ns(unsigned long flags, struct mnt_namespace *ns,
  	struct mount *old;
  	struct mount *new;
  	int copy_flags;
@@ -634,7 +620,7 @@ index 0e25713d09fa..151e574ed026 100644
  
  	BUG_ON(!ns);
  
-@@ -2977,6 +3202,15 @@ struct mnt_namespace *copy_mnt_ns(unsigned long flags, struct mnt_namespace *ns,
+@@ -2977,6 +3193,15 @@ struct mnt_namespace *copy_mnt_ns(unsigned long flags, struct mnt_namespace *ns,
  	copy_flags = CL_COPY_UNBINDABLE | CL_EXPIRE;
  	if (user_ns != ns->user_ns)
  		copy_flags |= CL_SHARED_TO_SLAVE | CL_UNPRIVILEGED;
@@ -650,7 +636,7 @@ index 0e25713d09fa..151e574ed026 100644
  	new = copy_tree(old, old->mnt.mnt_root, copy_flags);
  	if (IS_ERR(new)) {
  		namespace_unlock();
-@@ -3013,6 +3247,28 @@ struct mnt_namespace *copy_mnt_ns(unsigned long flags, struct mnt_namespace *ns,
+@@ -3013,6 +3238,28 @@ struct mnt_namespace *copy_mnt_ns(unsigned long flags, struct mnt_namespace *ns,
  		while (p->mnt.mnt_root != q->mnt.mnt_root)
  			p = next_mnt(p, old);
  	}
@@ -679,7 +665,7 @@ index 0e25713d09fa..151e574ed026 100644
  	namespace_unlock();
  
  	if (rootmnt)
-@@ -3559,3 +3816,37 @@ const struct proc_ns_operations mntns_operations = {
+@@ -3559,3 +3807,37 @@ const struct proc_ns_operations mntns_operations = {
  	.install	= mntns_install,
  	.owner		= mntns_owner,
  };
@@ -1254,7 +1240,7 @@ diff --git a/include/linux/sched.h b/include/linux/sched.h
 index faf5a0e2d7cc..0d9c17e7d240 100644
 --- a/include/linux/sched.h
 +++ b/include/linux/sched.h
-@@ -1427,8 +1427,15 @@ struct task_struct {
+@@ -1427,8 +1418,15 @@ struct task_struct {
  	ANDROID_KABI_RESERVE(3);
  	ANDROID_KABI_RESERVE(4);
  	ANDROID_KABI_RESERVE(5);
@@ -1297,7 +1283,7 @@ diff --git a/kernel/sys.c b/kernel/sys.c
 index 909045dc07cd..9c10189f0dac 100644
 --- a/kernel/sys.c
 +++ b/kernel/sys.c
-@@ -1265,4 +1265,7 @@ static int override_release(char __user *release, size_t len)
+@@ -1265,4 +1256,7 @@ static int override_release(char __user *release, size_t len)
  	return ret;
  }
  
@@ -1305,7 +1291,7 @@ index 909045dc07cd..9c10189f0dac 100644
 +extern void susfs_spoof_uname(struct new_utsname *tmp);
 +#endif
  SYSCALL_DEFINE1(newuname, struct new_utsname __user *, name)
-@@ -1295,4 +1298,7 @@ SYSCALL_DEFINE1(newuname, struct new_utsname __user *, name)
+@@ -1295,4 +1289,7 @@ SYSCALL_DEFINE1(newuname, struct new_utsname __user *, name)
  #endif
 +#ifdef CONFIG_KSU_SUSFS_SPOOF_UNAME
 +	susfs_spoof_uname(&tmp);
