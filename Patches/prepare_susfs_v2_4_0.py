@@ -1,39 +1,48 @@
 #!/usr/bin/env python3
-"""Move SUSFS 2.4.0's legacy vfs_kern_mount allocator hook to Legion's fs_context API."""
+"""Adapt the SUSFS 2.4.0 legacy mount hook to Legion's fs_context mount path."""
 from pathlib import Path
-import re
 import sys
 
-path = Path(sys.argv[1])
-data = path.read_text()
-pattern = re.compile(
-    r"@@ -953,7 \\+1109,22 @@ vfs_kern_mount\\(struct file_system_type \\*type, int flags, const char \\*name, void\\n"
-    r".*?(?=@@ -1008,7 \\+1179,40 @@ static struct mount \\*clone_mnt)",
-    re.S,
-)
+patch_path = Path(sys.argv[1])
+data = patch_path.read_text()
+
+# The upstream 4.19 patch hooks vfs_kern_mount(), but Legion's branch routes
+# kernel mounts through fc_mount() -> vfs_create_mount(). Replace only that
+# obsolete hunk; retain every other SUSFS 2.4.0 hunk unchanged.
+start = "@@ -953,7 +1109,22 @@ vfs_kern_mount"
+end = "@@ -1008,7 +1179,40 @@ static struct mount *clone_mnt"
+if data.count(start) != 1:
+    raise SystemExit(f"Expected one legacy vfs_kern_mount hunk, found {data.count(start)}")
+if data.count(end) != 1:
+    raise SystemExit(f"Expected one following clone_mnt hunk, found {data.count(end)}")
+
+begin = data.index(start)
+finish = data.index(end, begin)
 replacement = """@@ -1064,7 +1064,14 @@ struct vfsmount *vfs_create_mount(struct fs_context *fc)
- \	if (!fc->root)
- \	\treturn ERR_PTR(-EINVAL);
- \	sb = fc->root->d_sb;
- 
--\tmnt = alloc_vfsmnt(fc->source ?: "none");
+ 	if (!fc->root)
+ 		return ERR_PTR(-EINVAL);
+ 	sb = fc->root->d_sb;
+
+-	mnt = alloc_vfsmnt(fc->source ?: "none");
 +#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
-+\t/* Preserve SUSFS KSU mount IDs on Legion's fs_context mount path. */
-+\tif (static_branch_unlikely(&susfs_is_sdcard_android_data_not_decrypted) &&
-+\t    susfs_is_current_ksu_domain())
-+\t\tmnt = susfs_alloc_non_unshare_ksu_vfsmnt(fc->source ?: "none");
-+\telse
++	/* Preserve SUSFS KSU mount IDs on Legion's fs_context mount path. */
++	if (static_branch_unlikely(&susfs_is_sdcard_android_data_not_decrypted) &&
++	    susfs_is_current_ksu_domain())
++		mnt = susfs_alloc_non_unshare_ksu_vfsmnt(fc->source ?: "none");
++	else
 +#endif
-+\t\tmnt = alloc_vfsmnt(fc->source ?: "none");
- \	if (!mnt)
- \	\treturn ERR_PTR(-ENOMEM);
++		mnt = alloc_vfsmnt(fc->source ?: "none");
+ 	if (!mnt)
+ 		return ERR_PTR(-ENOMEM);
 """
-data, count = pattern.subn(replacement, data, count=1)
-if count != 1:
-    raise SystemExit(f"Expected exactly one legacy vfs_kern_mount hunk, found {count}")
-if "vfs_kern_mount(struct file_system_type" in data[data.find("diff --git a/fs/namespace.c"):data.find("diff --git a/fs/namespace.c")+20000]:
-    raise SystemExit("Legacy vfs_kern_mount SUSFS hunk was not removed")
+data = data[:begin] + replacement + data[finish:]
+
 if "susfs_alloc_non_unshare_ksu_vfsmnt(fc->source ?: \"none\")" not in data:
     raise SystemExit("fs_context SUSFS allocator hook missing")
-path.write_text(data)
-print("Adapted SUSFS 2.4.0 mount hook to vfs_create_mount(fs_context).")
+if start in data:
+    raise SystemExit("Obsolete vfs_kern_mount hook remains")
+if end not in data:
+    raise SystemExit("clone_mnt SUSFS hunk was unexpectedly changed")
+
+patch_path.write_text(data)
+print("Adapted SUSFS 2.4.0 vfs_kern_mount hook to Legion vfs_create_mount(fs_context).")
