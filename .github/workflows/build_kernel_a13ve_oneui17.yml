@@ -615,6 +615,7 @@ jobs:
           set -euo pipefail
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
           cp kernel/out/arch/arm64/boot/Image.gz AnyKernel3/Image.gz
+
           cat > AnyKernel3/anykernel.sh <<'AK'
           #!/sbin/sh
           properties() { '
@@ -627,86 +628,51 @@ jobs:
           device.name1=a13ve
           device.name2=SM-A137F
           '; }
-          # AnyKernel3 master uses uppercase shell variables and requires
-          # attributes() to resolve BLOCK=boot to the device's actual by-name path.
-          BLOCK=boot
+
+          # A13VE is non-A/B. Resolve the real Samsung boot block by-name
+          # node before calling AnyKernel3; split_boot requires an existing
+          # absolute block path and does not perform partition discovery.
           IS_SLOT_DEVICE=0
           RAMDISK_COMPRESSION=auto
           PATCH_VBMETA_FLAG=auto
-          . tools/ak3-core.sh && attributes
+          . tools/ak3-core.sh
+
+          BLOCK=""
+          for candidate in \
+            /dev/block/by-name/BOOT \
+            /dev/block/bootdevice/by-name/BOOT \
+            /dev/block/platform/*/by-name/BOOT \
+            /dev/block/platform/*/*/by-name/BOOT \
+            /dev/block/by-name/boot \
+            /dev/block/bootdevice/by-name/boot \
+            /dev/block/platform/*/by-name/boot \
+            /dev/block/platform/*/*/by-name/boot
+          do
+            if [ -e "$candidate" ]; then
+              BLOCK="$candidate"
+              break
+            fi
+          done
+
+          [ -n "$BLOCK" ] || abort "A13VE boot partition was not found under /dev/block/*/by-name. Aborting..."
           split_boot
           flash_boot
           AK
           chmod 0755 AnyKernel3/anykernel.sh
 
-          # Validate the generated AnyKernel3 installer and archive.
+          # Validate the kernel image and the exact installer that will ship.
           test -s AnyKernel3/Image.gz
           gzip -t AnyKernel3/Image.gz
+          sh -n AnyKernel3/anykernel.sh
           (cd AnyKernel3 && zip -r9 "$GITHUB_WORKSPACE/A13VE-SukiSU-Ultra-SUSFS.zip" . -x "*.git*" "*.github*")
           test -s A13VE-SukiSU-Ultra-SUSFS.zip
           unzip -t A13VE-SukiSU-Ultra-SUSFS.zip
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: A13VE-SukiSU-Ultra-SUSFS
-          path: |
-            A13VE-SukiSU-Ultra-SUSFS.zip
-            kernel/out/arch/arm64/boot/Image.gz
-          if-no-files-found: error
- AnyKernel3/anykernel.sh
-          ! grep -q '^block=' AnyKernel3/anykernel.sh
-          grep -qF '. tools/ak3-core.sh && attributes' AnyKernel3/anykernel.sh
-          grep -q '^IS_SLOT_DEVICE=0
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: A13VE-SukiSU-Ultra-SUSFS
-          path: |
-            A13VE-SukiSU-Ultra-SUSFS.zip
-            kernel/out/arch/arm64/boot/Image.gz
-          if-no-files-found: error
- AnyKernel3/anykernel.sh
-          grep -q '^split_boot
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: A13VE-SukiSU-Ultra-SUSFS
-          path: |
-            A13VE-SukiSU-Ultra-SUSFS.zip
-            kernel/out/arch/arm64/boot/Image.gz
-          if-no-files-found: error
- AnyKernel3/anykernel.sh
-          grep -q '^flash_boot
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: A13VE-SukiSU-Ultra-SUSFS
-          path: |
-            A13VE-SukiSU-Ultra-SUSFS.zip
-            kernel/out/arch/arm64/boot/Image.gz
-          if-no-files-found: error
- AnyKernel3/anykernel.sh
-          test -s AnyKernel3/Image.gz
-          gzip -t AnyKernel3/Image.gz
-
-          (cd AnyKernel3 && zip -r9 "$GITHUB_WORKSPACE/A13VE-SukiSU-Ultra-SUSFS.zip" . -x "*.git*" "*.github*")
-          test -s A13VE-SukiSU-Ultra-SUSFS.zip
-          unzip -t A13VE-SukiSU-Ultra-SUSFS.zip
-          unzip -p A13VE-SukiSU-Ultra-SUSFS.zip anykernel.sh | grep -q '^BLOCK=boot
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: A13VE-SukiSU-Ultra-SUSFS
-          path: |
-            A13VE-SukiSU-Ultra-SUSFS.zip
-            kernel/out/arch/arm64/boot/Image.gz
-          if-no-files-found: error
-
-          unzip -p A13VE-SukiSU-Ultra-SUSFS.zip anykernel.sh | grep -qF '. tools/ak3-core.sh && attributes'
+          unzip -p A13VE-SukiSU-Ultra-SUSFS.zip anykernel.sh > "$RUNNER_TEMP/packaged-anykernel.sh"
+          sh -n "$RUNNER_TEMP/packaged-anykernel.sh"
+          grep -qF '. tools/ak3-core.sh' "$RUNNER_TEMP/packaged-anykernel.sh"
+          grep -qF 'split_boot' "$RUNNER_TEMP/packaged-anykernel.sh"
+          grep -qF 'flash_boot' "$RUNNER_TEMP/packaged-anykernel.sh"
+          grep -qF 'A13VE boot partition was not found' "$RUNNER_TEMP/packaged-anykernel.sh"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
