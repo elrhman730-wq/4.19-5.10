@@ -1,0 +1,91 @@
+name: SUSFS v2.0.0 A13VE Compatibility Preflight
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '.github/workflows/susfs_v2_a13ve_preflight.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    name: Test SUSFS v2.0.0 against A13VE Linux 4.19
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    env:
+      KERNEL_REPO: https://github.com/AlfCraft07/android_kernel_samsung_mt6768-k419.git
+      KERNEL_BRANCH: legion-mt6768
+      SUSFS_PATCH_URL: https://raw.githubusercontent.com/TheSillyOk/kernel_ls_patches/7acc04583b63772baf8c1d88cbde778775895798/susfs-2.0.0.patch
+      KSU_REPO: https://github.com/SukiSU-Nova/SukiSU-Nova.git
+      KSU_COMMIT: 4bec532dd447e2852aa8932afa768255350c103a
+    steps:
+      - name: Install preflight dependencies
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y git curl patch python3
+
+      - name: Clone exact A13VE Linux 4.19 source
+        run: |
+          set -euo pipefail
+          git clone --depth=1 --branch "$KERNEL_BRANCH" "$KERNEL_REPO" kernel
+          test -s kernel/Makefile
+          grep -q '^VERSION = 4$' kernel/Makefile
+          grep -q '^PATCHLEVEL = 19$' kernel/Makefile
+          git -C kernel log -1 --oneline
+
+      - name: Download and validate real SUSFS v2.0.0 patch
+        run: |
+          set -euo pipefail
+          curl -fL "$SUSFS_PATCH_URL" -o susfs-2.0.0.patch
+          test -s susfs-2.0.0.patch
+          grep -Fq '+#define SUSFS_VERSION "v2.0.0"' susfs-2.0.0.patch
+          grep -Fq '+#define SUSFS_VARIANT "NON-GKI"' susfs-2.0.0.patch
+          grep -Fq 'diff --git a/fs/susfs.c b/fs/susfs.c' susfs-2.0.0.patch
+          grep -Fq 'diff --git a/include/linux/susfs.h b/include/linux/susfs.h' susfs-2.0.0.patch
+          sha256sum susfs-2.0.0.patch
+
+      - name: Dry-run SUSFS v2.0.0 against Linux 4.19
+        run: |
+          set -euo pipefail
+          cd kernel
+          set +e
+          patch --dry-run --batch --forward --fuzz=3 -p1 < "$GITHUB_WORKSPACE/susfs-2.0.0.patch" 2>&1 | tee "$GITHUB_WORKSPACE/susfs-v2-dry-run.log"
+          status=${PIPESTATUS[0]}
+          set -e
+          if [ "$status" -ne 0 ]; then
+            echo "::error::SUSFS v2.0.0 does not apply cleanly to the A13VE Legion Linux 4.19 source."
+            find . -name '*.rej' -o -name '*.orig' | sort || true
+            exit "$status"
+          fi
+          echo "SUSFS v2.0.0 kernel patch applies cleanly."
+
+      - name: Apply and verify SUSFS v2.0.0 kernel core
+        run: |
+          set -euo pipefail
+          cd kernel
+          patch --batch --forward --fuzz=3 -p1 < "$GITHUB_WORKSPACE/susfs-2.0.0.patch"
+          test -s fs/susfs.c
+          test -s include/linux/susfs.h
+          test -s include/linux/susfs_def.h
+          grep -Fq '#define SUSFS_VERSION "v2.0.0"' include/linux/susfs.h
+          grep -Fq '#define SUSFS_VARIANT "NON-GKI"' include/linux/susfs.h
+          grep -Fq 'obj-$(CONFIG_KSU_SUSFS) += susfs.o' fs/Makefile
+          echo "Verified actual SUSFS v2.0.0 NON-GKI source and headers."
+
+      - name: Inspect pinned SukiSU Nova integration surface
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none --no-checkout https://github.com/SukiSU-Nova/SukiSU-Nova.git KernelSU
+          git -C KernelSU fetch --depth=1 origin "$KSU_COMMIT"
+          git -C KernelSU checkout --detach "$KSU_COMMIT"
+          test -s KernelSU/kernel/Kconfig
+          test -s KernelSU/kernel/Makefile
+          test -s KernelSU/kernel/ksu_main.c
+          grep -q '^config KSU_SUSFS$' KernelSU/kernel/Kconfig
+          grep -q '^config KPM$' KernelSU/kernel/Kconfig
+          echo "Nova integration source pinned at $KSU_COMMIT"
+          echo "This preflight deliberately does not apply the legacy v1.5.5 shim."
