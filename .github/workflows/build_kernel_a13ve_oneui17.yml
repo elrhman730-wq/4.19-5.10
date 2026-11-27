@@ -214,6 +214,24 @@ jobs:
           grep -Fq '#define SUSFS_VARIANT "NON-GKI"' include/linux/susfs.h
           grep -Fq 'obj-$(CONFIG_KSU_SUSFS) += susfs.o' fs/Makefile
           echo "Applied and verified SUSFS v2.4.0 NON-GKI kernel core."
+          # The upstream copy_mnt_ns hunk is too weakly anchored for this
+          # Legion tree (patch --fuzz can place it outside copy_mnt_ns).
+          # Apply the flag at a unique, function-local anchor instead.
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("fs/namespace.c")
+          s = p.read_text()
+          anchor = "\\tif (user_ns != ns->user_ns)\\n\\t\\tcopy_flags |= CL_SHARED_TO_SLAVE | CL_UNPRIVILEGED;\\n#ifdef CONFIG_KDP_NS"
+          addition = "\\n#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\\n\\tcopy_flags |= CL_COPY_MNT_NS;\\n#endif"
+          if s.count(anchor) != 1:
+              raise SystemExit(f"copy_mnt_ns insertion anchor expected once, found {s.count(anchor)}")
+          if "copy_flags |= CL_COPY_MNT_NS;" not in s:
+              s = s.replace(anchor, anchor.replace("\\n#ifdef CONFIG_KDP_NS", addition + "\\n#ifdef CONFIG_KDP_NS"), 1)
+              p.write_text(s)
+          if s.count("copy_flags |= CL_COPY_MNT_NS;") != 1:
+              raise SystemExit("SUSFS namespace-copy flag was not inserted exactly once")
+          print("Inserted SUSFS namespace-copy flag inside copy_mnt_ns().")
+          PY
           # SUSFS v2.4.0 defines its private STATX result bits in
           # susfs_def.h. fs/stat.c uses those bits but the upstream patch
           # does not add the corresponding include on this 4.19 tree.
