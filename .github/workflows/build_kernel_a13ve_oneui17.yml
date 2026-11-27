@@ -1,11 +1,10 @@
-name: Build A13VE Kernel - SukiSU Nova + KPM + SUSFS
+name: Build A13VE Kernel - KernelSU-Next + SUSFS v2.4.0 + KPatch-Next
 
 on:
-  push:
-    branches: [main]
   workflow_run:
-    workflows: ["SUSFS v2.4.0 A13VE Compatibility Preflight"]
+    workflows: ["KSUN + SUSFS v2.4.0 A13VE Preflight"]
     types: [completed]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -13,7 +12,7 @@ permissions:
 
 jobs:
   validate:
-    name: Validate project files
+    name: Validate KSUN build inputs
     if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-22.04
     steps:
@@ -25,44 +24,27 @@ jobs:
         run: |
           set -euo pipefail
           test -s Profiles/a13ve_oneui17.env
-          test -s Patches/Patch/50_add_susfs_in_kernel-4.19.patch
-          test -s Patches/normal_patches.sh
-          test -s Patches/syscall_hook_patches.sh
-          test -s Patches/backport_patches.sh
-          test -s Patches/found_gcc.sh
-          test -s Patches/check_error.sh
-          test -s Patches/Rekernel/rekernel-4.19.patch
           test -s Patches/prepare_susfs_v2_4_0.py
-          test -s Patches/patch_sukisu_nova_manager_v3_hooks.py
-          python3 -m py_compile Patches/patch_sukisu_nova_manager_v3_hooks.py
+          test -s Patches/prepare_ksun_susfs_v2_4_0.py
           test -s kernel3.sh
+          python3 -m py_compile Patches/prepare_susfs_v2_4_0.py Patches/prepare_ksun_susfs_v2_4_0.py
           sh -n kernel3.sh
-          echo "All required A13VE build inputs exist."
-
-      - name: Check shell script syntax
-        shell: bash
-        run: |
-          set -euo pipefail
-          command -v patch
-          for script in Patches/*.sh; do
-            bash -n "$script"
-            echo "Shell syntax OK: $script"
-          done
+          echo "KernelSU-Next + SUSFS + KPatch-Next build inputs are valid."
 
   build:
-    name: Build A13VE kernel
+    name: Build A13VE Kernel and KPatch-Next module
     needs: validate
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-22.04
     timeout-minutes: 360
     env:
       KERNEL_REPO: https://github.com/AlfCraft07/android_kernel_samsung_mt6768-k419.git
       KERNEL_BRANCH: legion-mt6768
-      # Keep the builtin branch because this build also requires its in-tree SUSFS and KPM integration.
-      KSU_REPO: https://github.com/SukiSU-Nova/SukiSU-Nova.git
-      KSU_BRANCH: builtin
-      KSU_COMMIT: 4bec532dd447e2852aa8932afa768255350c103a
-      KSU_PACKAGE_NAME: com.sukisu.nova
+      KSU_REPO: https://github.com/wshamroukh/KernelSU-Next-SUSFS-kernelv4.19.git
+      KSU_COMMIT: e821d0f6f4ca5fb35b18066764e538a5f336e2d8
+      KSU_MANAGER_PACKAGE: com.rifsxd.ksunext
       SUSFS_PATCH_URL: https://raw.githubusercontent.com/JackA1ltman/NonGKI_Kernel_Build_2nd/mainline/Patches/Patch/susfs_patch_to_4.19.patch
+      SUSFS_PATCH_SHA256: 7e8463304562944f889159bcc554c0ed8891b34021ab5ef1bba15ee924780ab5
       DEFCONFIG: a13ve_defconfig
       JOBS: 4
 
@@ -75,56 +57,46 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update
-          sudo apt-get install -y git curl wget zip unzip bc bison flex \
+          sudo apt-get install -y git curl wget zip unzip jq bc bison flex \
             build-essential ccache libssl-dev libelf-dev python3 python-is-python3 \
             dwarves device-tree-compiler rsync lld llvm clang \
             gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
 
-      - name: Clone A13VE kernel source
+      - name: Clone A13VE Linux 4.19 source
         shell: bash
         run: |
           set -euo pipefail
           git clone --depth=1 --branch "$KERNEL_BRANCH" "$KERNEL_REPO" kernel
+          test -s kernel/Makefile
+          grep -q '^VERSION = 4$' kernel/Makefile
+          grep -q '^PATCHLEVEL = 19$' kernel/Makefile
           test -s "kernel/arch/arm64/configs/$DEFCONFIG"
           git -C kernel log -1 --oneline
 
-      - name: Install Proton Clang
+      - name: Clone pinned KernelSU-Next v3.4.0 legacy SUSFS integration
         shell: bash
         run: |
           set -euo pipefail
-          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git toolchain
-          test -x toolchain/bin/clang
-          echo "$GITHUB_WORKSPACE/toolchain/bin" >> "$GITHUB_PATH"
-          toolchain/bin/clang --version
+          git clone --filter=blob:none --no-checkout "$KSU_REPO" KernelSU
+          git -C KernelSU fetch --depth=1 origin "$KSU_COMMIT"
+          git -C KernelSU checkout --detach "$KSU_COMMIT"
+          test "$(git -C KernelSU rev-parse HEAD)" = "$KSU_COMMIT"
+          test -s KernelSU/kernel/Kconfig
+          test -s KernelSU/kernel/Kbuild
+          test -s KernelSU/kernel/core/init.c
+          test -s KernelSU/kernel/supercall/supercall.c
+          python3 Patches/prepare_ksun_susfs_v2_4_0.py KernelSU/kernel
+          echo "Pinned KernelSU-Next source: $(git -C KernelSU rev-parse HEAD)"
 
-      - name: Integrate pinned SukiSU Nova builtin branch
+      - name: Integrate KernelSU-Next into the Linux 4.19 tree
         working-directory: kernel
         shell: bash
         run: |
           set -euo pipefail
-          git clone --filter=blob:none --no-checkout --branch "$KSU_BRANCH" "$KSU_REPO" KernelSU
-          git -C KernelSU fetch --depth=1 origin "$KSU_COMMIT"
-          git -C KernelSU checkout --detach "$KSU_COMMIT"
-          test "$(git -C KernelSU rev-parse HEAD)" = "$KSU_COMMIT"
-
-          # Nova builtin is the manual-hook branch and carries SUSFS/KPM Kconfig.
-          test -s KernelSU/kernel/Kconfig
-          test -s KernelSU/kernel/Makefile
-          test -s KernelSU/kernel/ksu_main.c
-          test -s KernelSU/kernel/feature/sucompat.c
-          test -s KernelSU/kernel/kernel_compat.h
-          grep -q '^config KSU_SUSFS$' KernelSU/kernel/Kconfig
-          grep -q '^config KPM$' KernelSU/kernel/Kconfig
-          grep -q 'susfs_init();' KernelSU/kernel/ksu_main.c
-          grep -q 'KSU_CAN_USE_KPM' KernelSU/kernel/kernel_compat.h
-          grep -Fq 'KSU_PACKAGE_NAME ?= com.sukisu.nova' KernelSU/kernel/Makefile
-          echo "Verified SukiSU Nova v3.0.0 manager package: $KSU_PACKAGE_NAME"
-
           mkdir -p drivers
-          ln -s "$(realpath --relative-to="$PWD/drivers" "$PWD/KernelSU/kernel")" drivers/kernelsu
+          ln -s "$(realpath --relative-to="$PWD/drivers" "$GITHUB_WORKSPACE/KernelSU/kernel")" drivers/kernelsu
           grep -qF 'obj-$(CONFIG_KSU) += kernelsu/' drivers/Makefile || \
             printf '\nobj-$(CONFIG_KSU) += kernelsu/\n' >> drivers/Makefile
-
           python3 - <<'PY'
           from pathlib import Path
           p = Path("drivers/Kconfig")
@@ -139,90 +111,24 @@ jobs:
           if s.count(entry) != 1:
               raise SystemExit("drivers/kernelsu Kconfig entry must occur exactly once")
           PY
-
           test -L drivers/kernelsu
           test -s drivers/kernelsu/Kconfig
-          test -s drivers/kernelsu/Makefile
+          test -s drivers/kernelsu/Kbuild
           grep -qF 'obj-$(CONFIG_KSU) += kernelsu/' drivers/Makefile
           grep -qF 'source "drivers/kernelsu/Kconfig"' drivers/Kconfig
-          echo "Integrated SukiSU Nova commit: $(git -C KernelSU rev-parse HEAD)"
-          echo "Nova builtin manual hooks selected for Linux 4.19."
+          grep -q 'susfs_init();' drivers/kernelsu/core/init.c
+          grep -q 'SUSFS_MAGIC' drivers/kernelsu/supercall/supercall.c
+          echo "KernelSU-Next is integrated as an in-tree driver."
 
-      - name: Apply SukiSU Nova v3 Manager and manual hooks
-        working-directory: kernel
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 "$GITHUB_WORKSPACE/Patches/patch_sukisu_nova_manager_v3_hooks.py" "$PWD"
-          grep -Fq 'ksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);' fs/exec.c
-          grep -Fq 'ksu_handle_sys_reboot(magic1, magic2, cmd, &arg);' kernel/reboot.c
-          echo "SukiSU Nova builtin hooks verified."
-
-      - name: Remove unavailable static_call header on Linux 4.19
-        working-directory: kernel
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -f KernelSU/kernel/kernel_includes.h
-          grep -Fq static_call.h KernelSU/kernel/kernel_includes.h
-          sed -i /static_call.h/d KernelSU/kernel/kernel_includes.h
-          ! grep -Fq static_call.h KernelSU/kernel/kernel_includes.h
-          echo Removed-unused-static_call-header-for-Linux-4.19
-      - name: Fix SukiSU Nova KPM and SUSFS headers for Linux 4.19
-        working-directory: kernel
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-
-          kpm = Path("KernelSU/kernel/extension/kpm/kpm.c")
-          src = kpm.read_text()
-          old = "if (!access_ok(u64_to_user_ptr(cmd.result_code), sizeof(result))) return -EFAULT;"
-          new = """#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 0, 0)
-              if (!access_ok(VERIFY_WRITE, u64_to_user_ptr(cmd.result_code), sizeof(result))) return -EFAULT;
-          #else
-              if (!access_ok(u64_to_user_ptr(cmd.result_code), sizeof(result))) return -EFAULT;
-          #endif"""
-          if src.count(old) != 1:
-              raise SystemExit(f"KPM access_ok anchor expected once, found {src.count(old)}")
-          src = src.replace(old, new, 1)
-          if "#include <linux/version.h>" not in src:
-              src = src.replace("#include <linux/uaccess.h>", "#include <linux/uaccess.h>\n#include <linux/version.h>", 1)
-          kpm.write_text(src)
-
-          # dispatch.c is a unity-build fragment included by ksu_main.c.
-          # Put SUSFS headers in the common header instead of prepending them
-          # to the fragment, so declarations remain at file scope.
-          common = Path("KernelSU/kernel/kernel_includes.h")
-          common_src = common.read_text()
-          marker = "#include <linux/version.h>"
-          if common_src.count(marker) != 1:
-              raise SystemExit(f"kernel_includes.h version include anchor expected once, found {common_src.count(marker)}")
-          required_headers = [
-              "#include <linux/susfs.h>",
-              "#include <linux/susfs_def.h>",
-          ]
-          for header in required_headers:
-              if header not in common_src:
-                  common_src = common_src.replace(marker, marker + "\n" + header, 1)
-          common.write_text(common_src)
-
-          if "access_ok(VERIFY_WRITE, u64_to_user_ptr(cmd.result_code), sizeof(result))" not in kpm.read_text():
-              raise SystemExit("Linux 4.19 KPM access_ok compatibility check failed")
-          for header in required_headers:
-              if header not in common.read_text():
-                  raise SystemExit(f"SUSFS common-header include check failed: {header}")
-          print("Applied Linux 4.19 KPM compatibility and file-scope SUSFS headers.")
-          PY
-      - name: Download, adapt and apply SUSFS v2.4.0
+      - name: Download and apply SUSFS v2.4.0 NON-GKI patch
         working-directory: kernel
         shell: bash
         run: |
           set -euo pipefail
           curl -fL "$SUSFS_PATCH_URL" -o "$RUNNER_TEMP/susfs-2.4.0.patch"
-          echo "7e8463304562944f889159bcc554c0ed8891b34021ab5ef1bba15ee924780ab5  $RUNNER_TEMP/susfs-2.4.0.patch" | sha256sum -c -
+          echo "$SUSFS_PATCH_SHA256  $RUNNER_TEMP/susfs-2.4.0.patch" | sha256sum -c -
           grep -Fq '+#define SUSFS_VERSION "v2.4.0"' "$RUNNER_TEMP/susfs-2.4.0.patch"
+          grep -Fq '+#define SUSFS_VARIANT "NON-GKI"' "$RUNNER_TEMP/susfs-2.4.0.patch"
           python3 "$GITHUB_WORKSPACE/Patches/prepare_susfs_v2_4_0.py" "$RUNNER_TEMP/susfs-2.4.0.patch"
           patch --dry-run --batch --forward --fuzz=3 -p1 < "$RUNNER_TEMP/susfs-2.4.0.patch"
           patch --batch --forward --fuzz=3 -p1 < "$RUNNER_TEMP/susfs-2.4.0.patch"
@@ -232,12 +138,16 @@ jobs:
           grep -Fq '#define SUSFS_VERSION "v2.4.0"' include/linux/susfs.h
           grep -Fq '#define SUSFS_VARIANT "NON-GKI"' include/linux/susfs.h
           grep -Fq 'obj-$(CONFIG_KSU_SUSFS) += susfs.o' fs/Makefile
-          echo "Applied and verified SUSFS v2.4.0 NON-GKI kernel core."
-          # The upstream copy_mnt_ns hunk is too weakly anchored for this
-          # Legion tree (patch --fuzz can place it outside copy_mnt_ns).
-          # Apply the flag at a unique, function-local anchor instead.
+          echo "SUSFS v2.4.0 NON-GKI kernel core applied."
+
+      - name: Apply verified Legion 4.19 SUSFS compatibility adjustments
+        working-directory: kernel
+        shell: bash
+        run: |
+          set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
+
           p = Path("fs/namespace.c")
           s = p.read_text()
           anchor = "\tif (user_ns != ns->user_ns)\n\t\tcopy_flags |= CL_SHARED_TO_SLAVE | CL_UNPRIVILEGED;\n#ifdef CONFIG_KDP_NS"
@@ -249,13 +159,7 @@ jobs:
               p.write_text(s)
           if s.count("copy_flags |= CL_COPY_MNT_NS;") != 1:
               raise SystemExit("SUSFS namespace-copy flag was not inserted exactly once")
-          print("Inserted SUSFS namespace-copy flag inside copy_mnt_ns().")
-          PY
-          # SUSFS v2.4.0 defines its private STATX result bits in
-          # susfs_def.h. fs/stat.c uses those bits but the upstream patch
-          # does not add the corresponding include on this 4.19 tree.
-          python3 - <<'PY'
-          from pathlib import Path
+
           p = Path("fs/stat.c")
           s = p.read_text()
           marker = "#include <linux/compat.h>"
@@ -267,10 +171,19 @@ jobs:
               p.write_text(s)
           if inc not in p.read_text():
               raise SystemExit("SUSFS KSTAT definitions were not exposed to fs/stat.c")
-          print("Added guarded SUSFS KSTAT definitions include to fs/stat.c")
+          print("Applied Legion fs_context, namespace-copy, and KSTAT compatibility fixes.")
           PY
 
-      - name: Configure A13VE kernel
+      - name: Install Proton Clang
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git toolchain
+          test -x toolchain/bin/clang
+          echo "$GITHUB_WORKSPACE/toolchain/bin" >> "$GITHUB_PATH"
+          toolchain/bin/clang --version
+
+      - name: Configure KernelSU-Next, SUSFS, and KPatch symbol support
         working-directory: kernel
         shell: bash
         run: |
@@ -283,89 +196,48 @@ jobs:
           export LLVM_IAS=1
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CLANG_TRIPLE=aarch64-linux-gnu-
-          clang --version
-          command -v aarch64-linux-gnu-ld
           mkdir -p out
-          make O=out ARCH=arm64 CC=clang LD=ld.lld LLVM=1 LLVM_IAS=1 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- KSU_PACKAGE_NAME="$KSU_PACKAGE_NAME" "$DEFCONFIG"
+          make O=out ARCH=arm64 CC=clang LD=ld.lld LLVM=1 LLVM_IAS=1 \
+            CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- \
+            KSU_MANAGER_PACKAGE="$KSU_MANAGER_PACKAGE" "$DEFCONFIG"
+
           scripts/config --file out/.config \
             --enable ARM64 \
             --enable 64BIT \
+            --enable THREAD_INFO_IN_TASK \
             --enable KSU \
+            --disable KSU_MANUAL_HOOK \
+            --disable KSU_KPROBES_HOOK \
+            --enable KSU_SYSCALL_TABLE_HOOK \
             --enable KSU_SUSFS \
+            --enable KSU_SUSFS_SUS_PATH \
+            --enable KSU_SUSFS_SUS_MOUNT \
+            --enable KSU_SUSFS_SUS_KSTAT \
+            --enable KSU_SUSFS_SPOOF_UNAME \
+            --enable KSU_SUSFS_ENABLE_LOG \
+            --enable KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
+            --enable KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG \
+            --enable KSU_SUSFS_OPEN_REDIRECT \
+            --enable KSU_SUSFS_SUS_MAP \
+            --enable KSU_SUSFS_PRIORITY_UID_FILTER \
             --enable KALLSYMS \
-            --enable KALLSYMS_ALL \
-            --enable KPROBES \
-            --enable KRETPROBES \
-            --enable EXT4_FS \
-            --enable KPM
-          make O=out ARCH=arm64 CC=clang LD=ld.lld LLVM=1 LLVM_IAS=1 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- KSU_PACKAGE_NAME="$KSU_PACKAGE_NAME" olddefconfig
-          grep -q '^CONFIG_KSU=y          grep -q '^CONFIG_KSU_SUSFS=y$' out/.config
-          grep -q '^CONFIG_KPM=y$' out/.config
-          grep -q '^CONFIG_KALLSYMS=y$' out/.config
-          grep -q '^CONFIG_KALLSYMS_ALL=y$' out/.config
-          grep -q 'KSU_CAN_USE_KPM' drivers/kernelsu/kernel_compat.h
-          grep -E '^(CONFIG_KSU|CONFIG_KSU_SUSFS|CONFIG_KPM|CONFIG_KALLSYMS|CONFIG_KALLSYMS_ALL|CONFIG_KPROBES|CONFIG_KRETPROBES|CONFIG_EXT4_FS)=' out/.config
+            --enable KALLSYMS_ALL
+          make O=out ARCH=arm64 CC=clang LD=ld.lld LLVM=1 LLVM_IAS=1 \
+            CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- \
+            KSU_MANAGER_PACKAGE="$KSU_MANAGER_PACKAGE" olddefconfig
 
-      - name: Build kernel Image.gz
-        working-directory: kernel
-        shell: bash
-        run: |
-          set -euo pipefail
-          export ARCH=arm64
-          export SUBARCH=arm64
-          export CC=clang
-          export CLANG_TRIPLE=aarch64-linux-gnu-
-          export CROSS_COMPILE=aarch64-linux-gnu-
-          export LD=ld.lld
-          export LLVM=1
-          export LLVM_IAS=1
-          export KCFLAGS=-w
-          export CONFIG_SECTION_MISMATCH_WARN_ONLY=y
-          make -s O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 KSU_PACKAGE_NAME="$KSU_PACKAGE_NAME" -j"$JOBS"
-          test -s out/arch/arm64/boot/Image.gz
-          gzip -t out/arch/arm64/boot/Image.gz
-
-      - name: Prepare AnyKernel3 package
-        shell: bash
-        run: |
-          set -euo pipefail
-          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
-          cp kernel/out/arch/arm64/boot/Image.gz AnyKernel3/Image.gz
-
-          install -m 0755 kernel3.sh AnyKernel3/anykernel.sh
-
-          # Validate the kernel image and the exact installer that will ship.
-          test -s AnyKernel3/Image.gz
-          gzip -t AnyKernel3/Image.gz
-          sh -n AnyKernel3/anykernel.sh
-          (cd AnyKernel3 && zip -r9 "$GITHUB_WORKSPACE/A13VE-SukiSU-Nova-SUSFS.zip" . -x "*.git*" "*.github*")
-          test -s A13VE-SukiSU-Nova-SUSFS.zip
-          unzip -t A13VE-SukiSU-Nova-SUSFS.zip
-          unzip -p A13VE-SukiSU-Nova-SUSFS.zip anykernel.sh > "$RUNNER_TEMP/packaged-anykernel.sh"
-          sh -n "$RUNNER_TEMP/packaged-anykernel.sh"
-          grep -qF '. tools/ak3-core.sh' "$RUNNER_TEMP/packaged-anykernel.sh"
-          grep -qF 'BLOCK=boot;' "$RUNNER_TEMP/packaged-anykernel.sh"
-          grep -qF 'dump_boot;' "$RUNNER_TEMP/packaged-anykernel.sh"
-          grep -qF 'write_boot;' "$RUNNER_TEMP/packaged-anykernel.sh"
-          ! grep -qE '(^|[[:space:]])(block=|split_boot|flash_boot)' "$RUNNER_TEMP/packaged-anykernel.sh"
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: A13VE-SukiSU-Nova-SUSFS
-          path: |
-            A13VE-SukiSU-Nova-SUSFS.zip
-            kernel/out/arch/arm64/boot/Image.gz
-          if-no-files-found: error
- out/.config
+          grep -q '^CONFIG_KSU=y$' out/.config
+          grep -q '^CONFIG_KSU_SYSCALL_TABLE_HOOK=y$' out/.config
+          ! grep -q '^CONFIG_KSU_KPROBES_HOOK=y$' out/.config
+          ! grep -q '^CONFIG_KSU_MANUAL_HOOK=y$' out/.config
           grep -q '^CONFIG_KSU_SUSFS=y$' out/.config
-          grep -q '^CONFIG_KPM=y$' out/.config
+          grep -q '^CONFIG_KSU_SUSFS_PRIORITY_UID_FILTER=y$' out/.config
           grep -q '^CONFIG_KALLSYMS=y$' out/.config
           grep -q '^CONFIG_KALLSYMS_ALL=y$' out/.config
-          grep -q 'KSU_CAN_USE_KPM' drivers/kernelsu/kernel_compat.h
-          grep -E '^(CONFIG_KSU|CONFIG_KSU_SUSFS|CONFIG_KPM|CONFIG_KALLSYMS|CONFIG_KALLSYMS_ALL|CONFIG_KPROBES|CONFIG_KRETPROBES|CONFIG_EXT4_FS)=' out/.config
+          grep -q 'KSU_MANAGER_PACKAGE' drivers/kernelsu/Kbuild
+          grep -E '^(CONFIG_KSU|CONFIG_KSU_SYSCALL_TABLE_HOOK|CONFIG_KSU_SUSFS|CONFIG_KSU_SUSFS_[A-Z0-9_]+|CONFIG_KALLSYMS|CONFIG_KALLSYMS_ALL)=' out/.config
 
-      - name: Build kernel Image.gz
+      - name: Build A13VE Image.gz
         working-directory: kernel
         shell: bash
         run: |
@@ -380,39 +252,70 @@ jobs:
           export LLVM_IAS=1
           export KCFLAGS=-w
           export CONFIG_SECTION_MISMATCH_WARN_ONLY=y
-          make -s O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 KSU_PACKAGE_NAME="$KSU_PACKAGE_NAME" -j"$JOBS"
+          make -s O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 \
+            KSU_MANAGER_PACKAGE="$KSU_MANAGER_PACKAGE" -j"$JOBS"
           test -s out/arch/arm64/boot/Image.gz
           gzip -t out/arch/arm64/boot/Image.gz
 
-      - name: Prepare AnyKernel3 package
+      - name: Package AnyKernel3 flashable kernel ZIP
         shell: bash
         run: |
           set -euo pipefail
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
           cp kernel/out/arch/arm64/boot/Image.gz AnyKernel3/Image.gz
-
           install -m 0755 kernel3.sh AnyKernel3/anykernel.sh
-
-          # Validate the kernel image and the exact installer that will ship.
           test -s AnyKernel3/Image.gz
           gzip -t AnyKernel3/Image.gz
           sh -n AnyKernel3/anykernel.sh
-          (cd AnyKernel3 && zip -r9 "$GITHUB_WORKSPACE/A13VE-SukiSU-Nova-SUSFS.zip" . -x "*.git*" "*.github*")
-          test -s A13VE-SukiSU-Nova-SUSFS.zip
-          unzip -t A13VE-SukiSU-Nova-SUSFS.zip
-          unzip -p A13VE-SukiSU-Nova-SUSFS.zip anykernel.sh > "$RUNNER_TEMP/packaged-anykernel.sh"
+          (
+            cd AnyKernel3
+            zip -r9 "$GITHUB_WORKSPACE/A13VE-KernelSU-Next-SUSFS-v2.4.0.zip" . -x "*.git*" "*.github*"
+          )
+          test -s A13VE-KernelSU-Next-SUSFS-v2.4.0.zip
+          unzip -t A13VE-KernelSU-Next-SUSFS-v2.4.0.zip
+          unzip -p A13VE-KernelSU-Next-SUSFS-v2.4.0.zip anykernel.sh > "$RUNNER_TEMP/packaged-anykernel.sh"
           sh -n "$RUNNER_TEMP/packaged-anykernel.sh"
-          grep -qF '. tools/ak3-core.sh' "$RUNNER_TEMP/packaged-anykernel.sh"
           grep -qF 'BLOCK=boot;' "$RUNNER_TEMP/packaged-anykernel.sh"
           grep -qF 'dump_boot;' "$RUNNER_TEMP/packaged-anykernel.sh"
           grep -qF 'write_boot;' "$RUNNER_TEMP/packaged-anykernel.sh"
-          ! grep -qE '(^|[[:space:]])(block=|split_boot|flash_boot)' "$RUNNER_TEMP/packaged-anykernel.sh"
 
-      - name: Upload build artifacts
+      - name: Setup Node and pnpm for KPatch-Next module
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: KPatch-Next-Module/webui/pnpm-lock.yaml
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: latest
+
+      - name: Build KPatch-Next module for KernelSU-Next
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth=1 https://github.com/KernelSU-Next/KPatch-Next-Module.git KPatch-Next-Module
+          git -C KPatch-Next-Module fetch --depth=1 origin b5612adf4d4085a253cb0be30fa1be36e11d09db
+          git -C KPatch-Next-Module checkout --detach b5612adf4d4085a253cb0be30fa1be36e11d09db
+          sed -i 's/^kpatch-next=.*/kpatch-next="0.13.5-2"/' KPatch-Next-Module/version.properties
+          sed -i 's/^magiskboot=.*/magiskboot="v30.6"/' KPatch-Next-Module/version.properties
+          (
+            cd KPatch-Next-Module
+            bash build.sh
+          )
+          KPM_ZIP="$(find KPatch-Next-Module/out -maxdepth 1 -type f -name 'KPatch-Next-*.zip' -print -quit)"
+          test -n "$KPM_ZIP"
+          cp "$KPM_ZIP" A13VE-KPatch-Next-Module.zip
+          test -s A13VE-KPatch-Next-Module.zip
+          unzip -t A13VE-KPatch-Next-Module.zip
+
+      - name: Upload kernel and KPM artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: A13VE-SukiSU-Nova-SUSFS
+          name: A13VE-KernelSU-Next-SUSFS-v2.4.0-KPM
           path: |
-            A13VE-SukiSU-Nova-SUSFS.zip
+            A13VE-KernelSU-Next-SUSFS-v2.4.0.zip
+            A13VE-KPatch-Next-Module.zip
             kernel/out/arch/arm64/boot/Image.gz
           if-no-files-found: error
