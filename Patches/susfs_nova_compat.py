@@ -1,4 +1,5 @@
 from pathlib import Path
+import re
 
 def add_before_final_endif(path, text, marker):
     p = Path(path)
