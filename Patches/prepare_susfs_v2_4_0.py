@@ -22,7 +22,7 @@ replacement = """@@ -1064,7 +1064,14 @@ struct vfsmount *vfs_create_mount(struct
  	if (!fc->root)
  		return ERR_PTR(-EINVAL);
  	sb = fc->root->d_sb;
-
+ 
 -	mnt = alloc_vfsmnt(fc->source ?: "none");
 +#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
 +	/* Preserve SUSFS KSU mount IDs on Legion's fs_context mount path. */
