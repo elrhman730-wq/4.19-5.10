@@ -40,6 +40,7 @@ kconfig.write_text("".join(blocks))
 # pointers. Use the proven typed bridge pattern instead of dereferencing
 # user pointers at the call site.
 bridge = Path("KernelSU/kernel/include/linux/susfs_ksu_compat.h")
+bridge.parent.mkdir(parents=True, exist_ok=True)
 bridge.write_text(r'''#ifndef KSU_SUSFS_COMPAT_H
 #define KSU_SUSFS_COMPAT_H
 #include <linux/string.h>
