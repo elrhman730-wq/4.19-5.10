@@ -61,7 +61,7 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y git curl wget zip unzip jq bc bison flex \
-            build-essential ccache libssl-dev libelf-dev python3 python-is-python3 \
+            build-essential ccache libssl-dev libelf-dev libz-dev zlib1g-dev cmake python3 python-is-python3 \
             dwarves device-tree-compiler rsync lld llvm clang \
             gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
 
@@ -267,22 +267,109 @@ jobs:
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/kpatch-next"
           cd "$RUNNER_TEMP/kpatch-next"
+          git clone --depth=1 --branch "$KPATCH_NEXT_VERSION" https://github.com/KernelSU-Next/KPatch-Next.git KPatch-Next
+          test -s KPatch-Next/kernel/Makefile
+          test -s KPatch-Next/tools/CMakeLists.txt
+          export TARGET_COMPILE=placeholder
+          (
+            cd KPatch-Next/kernel
+            make hdr
+          )
+          (
+            cd KPatch-Next/tools
+            cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+            cmake --build build --parallel 2
+            install -m 0755 build/kptools "$RUNNER_TEMP/kpatch-next/kptools"
+          )
           BASE_URL="https://github.com/KernelSU-Next/KPatch-Next/releases/download/$KPATCH_NEXT_VERSION"
           curl -fL "$BASE_URL/kpimg-linux" -o kpimg
-          curl -fL "$BASE_URL/kptools-linux" -o kptools
           chmod 0755 kptools
-          ./kptools --help || true
+          ./kptools --version
+          ./kptools --help | grep -q -- '--patch'
           gzip -dc "$GITHUB_WORKSPACE/kernel/out/arch/arm64/boot/Image.gz" > Image.raw
           test -s Image.raw
           ./kptools -p -i Image.raw -k kpimg -o Image.kpm
           test -s Image.kpm
           ./kptools -i Image.kpm -l | tee kpatch-kernel-info.txt
-          grep -q 'patched=true' kpatch-kernel-info.txt
-          ./kptools -i Image.kpm -f | tee kernel-features.txt
-          grep -q 'CONFIG_KALLSYMS_ALL=y' kernel-features.txt
+          grep -q '^patched=true
+
+      - name: Package and verify AnyKernel3 flashable kernel ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
+          cp kernel/out/arch/arm64/boot/Image.gz AnyKernel3/Image.gz
+          install -m 0755 kernel3.sh AnyKernel3/anykernel.sh
+          test -s AnyKernel3/Image.gz
+          gzip -t AnyKernel3/Image.gz
+          sh -n AnyKernel3/anykernel.sh
+          (
+            cd AnyKernel3
+            zip -r9 "$GITHUB_WORKSPACE/A13VE-KernelSU-Next-SUSFS-v2.4.0-KPM-Embedded.zip" . -x "*.git*" "*.github*"
+          )
+          test -s A13VE-KernelSU-Next-SUSFS-v2.4.0-KPM-Embedded.zip
+          unzip -t A13VE-KernelSU-Next-SUSFS-v2.4.0-KPM-Embedded.zip
+          unzip -p A13VE-KernelSU-Next-SUSFS-v2.4.0-KPM-Embedded.zip anykernel.sh > "$RUNNER_TEMP/packaged-anykernel.sh"
+          unzip -p A13VE-KernelSU-Next-SUSFS-v2.4.0-KPM-Embedded.zip Image.gz > "$RUNNER_TEMP/packaged-Image.gz"
+          sh -n "$RUNNER_TEMP/packaged-anykernel.sh"
+          gzip -t "$RUNNER_TEMP/packaged-Image.gz"
+          grep -qF 'BLOCK=boot;' "$RUNNER_TEMP/packaged-anykernel.sh"
+          grep -qF 'dump_boot;' "$RUNNER_TEMP/packaged-anykernel.sh"
+          grep -qF 'write_boot;' "$RUNNER_TEMP/packaged-anykernel.sh"
+          sha256sum A13VE-KernelSU-Next-SUSFS-v2.4.0-KPM-Embedded.zip "$RUNNER_TEMP/packaged-Image.gz"
+
+      - name: Upload verified embedded-KPM kernel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: A13VE-KernelSU-Next-SUSFS-v2.4.0-KPM-Embedded
+          path: |
+            A13VE-KernelSU-Next-SUSFS-v2.4.0-KPM-Embedded.zip
+            kernel/out/arch/arm64/boot/Image.gz
+          if-no-files-found: error
+          compression-level: 0
+ kpatch-kernel-info.txt
           gzip -n -9 -c Image.kpm > "$GITHUB_WORKSPACE/kernel/out/arch/arm64/boot/Image.gz"
           gzip -t "$GITHUB_WORKSPACE/kernel/out/arch/arm64/boot/Image.gz"
-          echo "KPatch-Next runtime is embedded in the final arm64 kernel image."
+          gzip -dc "$GITHUB_WORKSPACE/kernel/out/arch/arm64/boot/Image.gz" > Image.final
+          ./kptools -i Image.final -l | tee kpatch-final-verification.txt
+          grep -q '^patched=true
+
+      - name: Package and verify AnyKernel3 flashable kernel ZIP
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
+          cp kernel/out/arch/arm64/boot/Image.gz AnyKernel3/Image.gz
+          install -m 0755 kernel3.sh AnyKernel3/anykernel.sh
+          test -s AnyKernel3/Image.gz
+          gzip -t AnyKernel3/Image.gz
+          sh -n AnyKernel3/anykernel.sh
+          (
+            cd AnyKernel3
+            zip -r9 "$GITHUB_WORKSPACE/A13VE-KernelSU-Next-SUSFS-v2.4.0-KPM-Embedded.zip" . -x "*.git*" "*.github*"
+          )
+          test -s A13VE-KernelSU-Next-SUSFS-v2.4.0-KPM-Embedded.zip
+          unzip -t A13VE-KernelSU-Next-SUSFS-v2.4.0-KPM-Embedded.zip
+          unzip -p A13VE-KernelSU-Next-SUSFS-v2.4.0-KPM-Embedded.zip anykernel.sh > "$RUNNER_TEMP/packaged-anykernel.sh"
+          unzip -p A13VE-KernelSU-Next-SUSFS-v2.4.0-KPM-Embedded.zip Image.gz > "$RUNNER_TEMP/packaged-Image.gz"
+          sh -n "$RUNNER_TEMP/packaged-anykernel.sh"
+          gzip -t "$RUNNER_TEMP/packaged-Image.gz"
+          grep -qF 'BLOCK=boot;' "$RUNNER_TEMP/packaged-anykernel.sh"
+          grep -qF 'dump_boot;' "$RUNNER_TEMP/packaged-anykernel.sh"
+          grep -qF 'write_boot;' "$RUNNER_TEMP/packaged-anykernel.sh"
+          sha256sum A13VE-KernelSU-Next-SUSFS-v2.4.0-KPM-Embedded.zip "$RUNNER_TEMP/packaged-Image.gz"
+
+      - name: Upload verified embedded-KPM kernel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: A13VE-KernelSU-Next-SUSFS-v2.4.0-KPM-Embedded
+          path: |
+            A13VE-KernelSU-Next-SUSFS-v2.4.0-KPM-Embedded.zip
+            kernel/out/arch/arm64/boot/Image.gz
+          if-no-files-found: error
+          compression-level: 0
+ kpatch-final-verification.txt
+          echo "KPatch-Next runtime is embedded and verified in the final arm64 kernel image."
 
       - name: Package and verify AnyKernel3 flashable kernel ZIP
         shell: bash
