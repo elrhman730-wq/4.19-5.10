@@ -55,10 +55,10 @@ jobs:
     env:
       KERNEL_REPO: https://github.com/AlfCraft07/android_kernel_samsung_mt6768-k419.git
       KERNEL_BRANCH: legion-mt6768
-      # Use Nova's runtime-hook main branch, matching the previously working kernel's kprobe handlers.
+      # Keep the builtin branch because this build also requires its in-tree SUSFS and KPM integration.
       KSU_REPO: https://github.com/SukiSU-Nova/SukiSU-Nova.git
-      KSU_BRANCH: main
-      KSU_COMMIT: 1439545f12bffe0263690ba862139b70ee5f20cf
+      KSU_BRANCH: builtin
+      KSU_COMMIT: 4bec532dd447e2852aa8932afa768255350c103a
       KSU_PACKAGE_NAME: com.sukisu.nova
       SUSFS_PATCH_URL: https://raw.githubusercontent.com/JackA1ltman/NonGKI_Kernel_Build_2nd/mainline/Patches/Patch/susfs_patch_to_4.19.patch
       DEFCONFIG: a13ve_defconfig
@@ -95,7 +95,7 @@ jobs:
           echo "$GITHUB_WORKSPACE/toolchain/bin" >> "$GITHUB_PATH"
           toolchain/bin/clang --version
 
-      - name: Integrate pinned SukiSU Nova runtime-hook main branch
+      - name: Integrate pinned SukiSU Nova builtin branch
         working-directory: kernel
         shell: bash
         run: |
@@ -105,7 +105,7 @@ jobs:
           git -C KernelSU checkout --detach "$KSU_COMMIT"
           test "$(git -C KernelSU rev-parse HEAD)" = "$KSU_COMMIT"
 
-          # Nova main uses runtime kprobes/syscall tracepoints; do not add builtin manual hooks.
+          # Nova builtin is the manual-hook branch and carries SUSFS/KPM Kconfig.
           test -s KernelSU/kernel/Kconfig
           test -s KernelSU/kernel/Makefile
           test -s KernelSU/kernel/ksu_main.c
@@ -144,7 +144,17 @@ jobs:
           grep -qF 'obj-$(CONFIG_KSU) += kernelsu/' drivers/Makefile
           grep -qF 'source "drivers/kernelsu/Kconfig"' drivers/Kconfig
           echo "Integrated SukiSU Nova commit: $(git -C KernelSU rev-parse HEAD)"
-          echo "Nova main runtime hooks selected for Linux 4.19."
+          echo "Nova builtin manual hooks selected for Linux 4.19."
+
+      - name: Apply SukiSU Nova v3 Manager and manual hooks
+        working-directory: kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 "$GITHUB_WORKSPACE/Patches/patch_sukisu_nova_manager_v3_hooks.py" "$PWD"
+          grep -Fq 'ksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);' fs/exec.c
+          grep -Fq 'ksu_handle_sys_reboot(magic1, magic2, cmd, &arg);' kernel/reboot.c
+          echo "SukiSU Nova builtin hooks verified."
 
       - name: Remove unavailable static_call header on Linux 4.19
         working-directory: kernel
