@@ -502,6 +502,53 @@ jobs:
           grep -q 'SUSFS_VERSION "v1.5.7"' include/linux/susfs.h
           ! grep -q 'CL_ZYGOTE_COPY_MNT_NS\|current->susfs_last_fake_mnt_id' fs/namespace.c
 
+      - name: Resolve SUSFS shared-state symbol ownership
+        working-directory: kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          susfs = Path("fs/susfs.c")
+          sucompat = Path("drivers/kernelsu/sucompat.c")
+          fs_text = susfs.read_text()
+          ksu_text = sucompat.read_text()
+
+          symbol = "susfs_is_sus_su_hooks_enabled"
+          definition = re.compile(
+              rf"(?m)^\s*bool\s+{symbol}\s*(?:__read_mostly\s*)?=\s*false\s*;"
+          )
+          fs_defs = list(definition.finditer(fs_text))
+          if len(fs_defs) != 1:
+              raise SystemExit(
+                  f"{symbol}: expected exactly one initialized owner in fs/susfs.c, found {len(fs_defs)}"
+              )
+
+          duplicate = re.compile(
+              rf"(?m)^bool\s+{symbol}\s+__read_mostly\s*=\s*false;"
+          )
+          ksu_defs = list(duplicate.finditer(ksu_text))
+          if len(ksu_defs) != 1:
+              raise SystemExit(
+                  f"{symbol}: expected exactly one duplicate SukiSU definition in sucompat.c, found {len(ksu_defs)}"
+              )
+
+          ksu_text = duplicate.sub(f"extern bool {symbol} __read_mostly;", ksu_text, count=1)
+          sucompat.write_text(ksu_text)
+
+          if len(list(definition.finditer(fs_text))) != 1:
+              raise SystemExit("SUSFS owner definition changed unexpectedly")
+          if duplicate.search(ksu_text):
+              raise SystemExit("Duplicate initialized SukiSU definition remains")
+          if not re.search(rf"(?m)^extern bool {symbol} __read_mostly;$", ksu_text):
+              raise SystemExit("SukiSU extern declaration was not written")
+          print(f"{symbol}: fs/susfs.c owns storage; sucompat.c references it with extern.")
+          PY
+          test -s fs/susfs.c
+          test -s drivers/kernelsu/sucompat.c
+
       - name: Configure A13VE kernel
         working-directory: kernel
         shell: bash
