@@ -12,9 +12,9 @@ pattern = re.compile(
     re.S,
 )
 replacement = """@@ -1050,7 +1057,14 @@ struct vfsmount *vfs_create_mount(struct fs_context *fc)
- \	if (!fc->root)
- \	\treturn ERR_PTR(-EINVAL);
- \	sb = fc->root->d_sb;
+\tif (!fc->root)
+\t\treturn ERR_PTR(-EINVAL);
+\tsb = fc->root->d_sb;
 
 -\tmnt = alloc_vfsmnt(fc->source ?: "none");
 +#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT
