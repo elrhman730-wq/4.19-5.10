@@ -171,14 +171,14 @@ jobs:
               raise SystemExit(f"KPM access_ok anchor expected once, found {src.count(old)}")
           src = src.replace(old, new, 1)
           if "#include <linux/version.h>" not in src:
-              src = src.replace("#include <linux/uaccess.h>", "#include <linux/uaccess.h>\\n#include <linux/version.h>", 1)
+              src = src.replace("#include <linux/uaccess.h>", "#include <linux/uaccess.h>\n#include <linux/version.h>", 1)
           kpm.write_text(src)
 
           dispatch = Path("KernelSU/kernel/supercall/dispatch.c")
           src = dispatch.read_text()
           include = "#include <linux/susfs_def.h>"
           if include not in src:
-              src = include + "\\n" + src
+              src = include + "\n" + src
           dispatch.write_text(src)
 
           if "access_ok(VERIFY_WRITE, u64_to_user_ptr(cmd.result_code), sizeof(result))" not in kpm.read_text():
