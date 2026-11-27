@@ -191,7 +191,7 @@ if "susfs_compat_init_work();" not in sc:
 # The legacy SUSFS source declares this helper static in some 4.19/4.9
 # patchsets; the compatibility workqueue lives in a separate translation unit.
 sc, exported = re.subn(
-    r"(?m)^static void susfs_run_sus_path_loop\\(void\\)",
+    r"(?m)^static void susfs_run_sus_path_loop\(void\)",
     "void susfs_run_sus_path_loop(void)",
     sc,
 )
