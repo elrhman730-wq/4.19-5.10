@@ -1,10 +1,14 @@
 name: Build A13VE Kernel - KernelSU-Next + SUSFS v2.4.0 + KPatch-Next
 
 on:
-  workflow_run:
-    workflows: ["KSUN + SUSFS v2.4.0 A13VE Preflight"]
-    types: [completed]
+  push:
     branches: [main]
+    paths:
+      - '.github/workflows/build_kernel_a13ve_oneui17.yml'
+      - 'Profiles/a13ve_oneui17.env'
+      - 'Patches/prepare_susfs_v2_4_0.py'
+      - 'Patches/prepare_ksun_susfs_v2_4_0.py'
+      - 'kernel3.sh'
   workflow_dispatch:
 
 permissions:
@@ -13,7 +17,6 @@ permissions:
 jobs:
   validate:
     name: Validate KSUN build inputs
-    if: github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_sha == github.sha)
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout
@@ -34,7 +37,6 @@ jobs:
   build:
     name: Build A13VE Kernel and KPatch-Next module
     needs: validate
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-22.04
     timeout-minutes: 360
     env:
