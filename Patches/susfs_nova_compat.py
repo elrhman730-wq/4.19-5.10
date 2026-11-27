@@ -188,8 +188,19 @@ if "susfs_compat_init_work();" not in sc:
         raise SystemExit("fs/susfs.c: cannot locate susfs_init() for workqueue initialization")
     sc = sc[:m.end()] + "\n    extern void susfs_compat_init_work(void);\n    susfs_compat_init_work();" + sc[m.end():]
     susfs_c.write_text(sc)
-if "susfs_run_sus_path_loop" not in sc:
+# The legacy SUSFS source declares this helper static in some 4.19/4.9
+# patchsets; the compatibility workqueue lives in a separate translation unit.
+sc, exported = re.subn(
+    r"(?m)^static void susfs_run_sus_path_loop\\(void\\)",
+    "void susfs_run_sus_path_loop(void)",
+    sc,
+)
+if exported > 1:
+    raise SystemExit("SUSFS loop helper has multiple definitions")
+if "void susfs_run_sus_path_loop(void)" not in sc:
     raise SystemExit("SUSFS 1.5.5 core lacks susfs_run_sus_path_loop; cannot wire Nova workqueue safely")
+if exported:
+    susfs_c.write_text(sc)
 if "TASK_STRUCT_NON_ROOT_USER_APP_PROC" not in Path("include/linux/susfs_def.h").read_text():
     raise SystemExit("Legacy SUSFS task-state marker is missing; refusing unsafe umount shim")
 
