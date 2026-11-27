@@ -44,29 +44,18 @@ if start in data:
 if end not in data:
     raise SystemExit("clone_mnt SUSFS hunk was unexpectedly changed")
 
-# Do not ship the upstream copy_mnt_ns insertion hunk: its context is not
-# unique on this vendor tree and patch --fuzz can place copy_flags outside
-# the function where it is declared. The workflow inserts it at a unique
-# function-local anchor after applying the remaining SUSFS hunks.
+# Do not ship the upstream copy_mnt_ns insertion hunk at all. Its
+# declared line counts become fragile when only the additions are stripped.
+# The build workflow inserts CL_COPY_MNT_NS at a verified function-local
+# anchor in fs/namespace.c after all remaining SUSFS hunks are applied.
 import re
-matches = list(re.finditer(r"(?m)^@@ -2945,6 \+3155,9 @@ struct mnt_namespace \*copy_mnt_ns.*$", data))
-if len(matches) != 1:
-    raise SystemExit(f"Expected one copy_mnt_ns SUSFS hunk, found {len(matches)}")
-hunk_start = matches[0].start()
-next_hunk = data.find("\n@@ ", matches[0].end())
-if next_hunk < 0:
-    next_hunk = len(data)
-hunk = data[hunk_start:next_hunk]
-for line in (
-    "+#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT",
-    "+\tcopy_flags |= CL_COPY_MNT_NS;",
-    "+#endif",
-):
-    if hunk.count(line) != 1:
-        raise SystemExit(f"Expected exactly one unsafe namespace insertion line: {line!r}")
-    hunk = hunk.replace(line + "\n", "", 1)
-hunk = hunk.replace("@@ -2945,6 +3155,9 @@", "@@ -2945,6 +3155,6 @@", 1)
-data = data[:hunk_start] + hunk + data[next_hunk:]
+pattern = re.compile(
+    r"(?m)^@@ -2945,6 \\+3155,9 @@ struct mnt_namespace \\*copy_mnt_ns.*?\n(?=^@@ -3527,3 \\+3740,43 @@)",
+    re.S,
+)
+data, removed = pattern.subn("", data)
+if removed != 1:
+    raise SystemExit(f"Expected to remove exactly one copy_mnt_ns hunk, removed {removed}")
 if "copy_flags |= CL_COPY_MNT_NS;" in data:
     raise SystemExit("Unsafe copy_mnt_ns insertion remains in generated patch")
 
