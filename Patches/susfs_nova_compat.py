@@ -31,6 +31,24 @@ add_before_final_endif(
     "SukiSU Nova protocol compatibility",
 )
 
+# The 1.5.5 4.19 core does not implement these two v2-only features.
+# Disable them at Kconfig level so Nova does not compile unavailable handlers.
+import re
+kconfig = Path("KernelSU/kernel/Kconfig")
+ks = kconfig.read_text()
+blocks = re.split(r"(?=^config )", ks, flags=re.M)
+for option in ("KSU_SUSFS_SUS_MAP", "KSU_SUSFS_PRIORITY_UID_FILTER"):
+    found = False
+    for n, block in enumerate(blocks):
+        if block.startswith("config " + option + "\n"):
+            if "default y" in block:
+                blocks[n] = block.replace("default y", "default n", 1)
+            found = True
+            break
+    if not found:
+        raise SystemExit(f"Nova Kconfig option missing: {option}")
+kconfig.write_text("".join(blocks))
+
 dispatch = Path("KernelSU/kernel/supercall/dispatch.c")
 d = dispatch.read_text()
 for fn in (
