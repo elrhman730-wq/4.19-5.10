@@ -170,7 +170,10 @@ jobs:
           if s.count(guarded) != 1:
               raise SystemExit("static_call include guard validation failed")
           PY
-          grep -q '^#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)        working-directory: kernel
+          grep -Fq '#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 12, 0)' KernelSU/kernel/kernel_includes.h
+
+      - name: Download SUSFS 4.19 source files
+        working-directory: kernel
         shell: bash
         run: |
           set -euo pipefail
