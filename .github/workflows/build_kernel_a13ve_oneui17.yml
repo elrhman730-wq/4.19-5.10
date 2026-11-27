@@ -174,18 +174,29 @@ jobs:
               src = src.replace("#include <linux/uaccess.h>", "#include <linux/uaccess.h>\n#include <linux/version.h>", 1)
           kpm.write_text(src)
 
-          dispatch = Path("KernelSU/kernel/supercall/dispatch.c")
-          src = dispatch.read_text()
-          include = "#include <linux/susfs.h>"
-          if include not in src:
-              src = include + "\n" + src
-          dispatch.write_text(src)
+          # dispatch.c is a unity-build fragment included by ksu_main.c.
+          # Put SUSFS headers in the common header instead of prepending them
+          # to the fragment, so declarations remain at file scope.
+          common = Path("KernelSU/kernel/kernel_includes.h")
+          common_src = common.read_text()
+          marker = "#include <linux/version.h>"
+          if common_src.count(marker) != 1:
+              raise SystemExit(f"kernel_includes.h version include anchor expected once, found {common_src.count(marker)}")
+          required_headers = [
+              "#include <linux/susfs.h>",
+              "#include <linux/susfs_def.h>",
+          ]
+          for header in required_headers:
+              if header not in common_src:
+                  common_src = common_src.replace(marker, marker + "\\n" + header, 1)
+          common.write_text(common_src)
 
           if "access_ok(VERIFY_WRITE, u64_to_user_ptr(cmd.result_code), sizeof(result))" not in kpm.read_text():
               raise SystemExit("Linux 4.19 KPM access_ok compatibility check failed")
-          if include not in dispatch.read_text():
-              raise SystemExit("SUSFS command definitions include check failed")
-          print("Applied Linux 4.19 KPM access_ok and SUSFS command-header compatibility.")
+          for header in required_headers:
+              if header not in common.read_text():
+                  raise SystemExit(f"SUSFS common-header include check failed: {header}")
+          print("Applied Linux 4.19 KPM compatibility and file-scope SUSFS headers.")
           PY
       - name: Download SUSFS 4.19 source files
         working-directory: kernel
@@ -199,6 +210,10 @@ jobs:
           test -s fs/susfs.c
           test -s include/linux/susfs.h
           test -s include/linux/susfs_def.h
+          grep -q '^#define SUSFS_MAGIC' include/linux/susfs_def.h
+          grep -q '^#define CMD_SUSFS_ADD_SUS_PATH_LOOP' include/linux/susfs_def.h
+          grep -q '^#define CMD_SUSFS_ADD_SUS_MAP' include/linux/susfs_def.h
+          grep -q '^#define CMD_SUSFS_ENABLE_AVC_LOG_SPOOFING' include/linux/susfs_def.h
 
       - name: Apply SUSFS base patch
         working-directory: kernel
