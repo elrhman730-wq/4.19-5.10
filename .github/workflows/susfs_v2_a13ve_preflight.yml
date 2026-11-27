@@ -1,4 +1,4 @@
-name: SUSFS v2.0.0 A13VE Compatibility Preflight
+name: SUSFS v2.4.0 A13VE Compatibility Preflight
 
 on:
   push:
@@ -18,7 +18,7 @@ jobs:
     env:
       KERNEL_REPO: https://github.com/AlfCraft07/android_kernel_samsung_mt6768-k419.git
       KERNEL_BRANCH: legion-mt6768
-      SUSFS_PATCH_URL: https://raw.githubusercontent.com/TheSillyOk/kernel_ls_patches/7acc04583b63772baf8c1d88cbde778775895798/susfs-2.0.0.patch
+      SUSFS_PATCH_URL: https://raw.githubusercontent.com/JackA1ltman/NonGKI_Kernel_Build_2nd/mainline/Patches/Patch/susfs_patch_to_4.19.patch
       KSU_REPO: https://github.com/SukiSU-Nova/SukiSU-Nova.git
       KSU_COMMIT: 4bec532dd447e2852aa8932afa768255350c103a
     steps:
@@ -61,7 +61,7 @@ jobs:
             find . -name '*.rej' -o -name '*.orig' | sort || true
             exit "$status"
           fi
-          echo "SUSFS v2.0.0 kernel patch applies cleanly."
+          echo "SUSFS v2.4.0 kernel patch applies cleanly."
 
       - name: Apply and verify SUSFS v2.0.0 kernel core
         run: |
@@ -74,7 +74,7 @@ jobs:
           grep -Fq '#define SUSFS_VERSION "v2.0.0"' include/linux/susfs.h
           grep -Fq '#define SUSFS_VARIANT "NON-GKI"' include/linux/susfs.h
           grep -Fq 'obj-$(CONFIG_KSU_SUSFS) += susfs.o' fs/Makefile
-          echo "Verified actual SUSFS v2.0.0 NON-GKI source and headers."
+          echo "Verified actual SUSFS v2.4.0 NON-GKI source and headers."
 
       - name: Inspect pinned SukiSU Nova integration surface
         run: |
