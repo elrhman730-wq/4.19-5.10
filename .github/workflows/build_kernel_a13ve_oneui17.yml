@@ -280,7 +280,9 @@ jobs:
           make O=out ARCH=arm64 CC=clang LD=ld.lld LLVM=1 LLVM_IAS=1 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- olddefconfig
           grep -q '^CONFIG_KSU=y$' out/.config
           grep -q '^CONFIG_KSU_SUSFS=y$' out/.config
-          grep -q '^CONFIG_KPM=y          grep -q '^CONFIG_KALLSYMS_ALL=y$' out/.config
+          grep -q '^CONFIG_KPM=y$' out/.config
+          grep -q '^CONFIG_KALLSYMS=y$' out/.config
+          grep -q '^CONFIG_KALLSYMS_ALL=y$' out/.config
           grep -q 'KSU_CAN_USE_KPM' drivers/kernelsu/kernel_compat.h
           grep -E '^(CONFIG_KSU|CONFIG_KSU_SUSFS|CONFIG_KPM|CONFIG_KALLSYMS|CONFIG_KALLSYMS_ALL|CONFIG_KPROBES|CONFIG_KRETPROBES|CONFIG_EXT4_FS)=' out/.config
 
