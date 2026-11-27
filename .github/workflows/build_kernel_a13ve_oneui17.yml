@@ -284,7 +284,7 @@ jobs:
           clang --version
           command -v aarch64-linux-gnu-ld
           mkdir -p out
-          make O=out ARCH=arm64 CC=clang LD=ld.lld LLVM=1 LLVM_IAS=1 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- "$DEFCONFIG"
+          make O=out ARCH=arm64 CC=clang LD=ld.lld LLVM=1 LLVM_IAS=1 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- KSU_PACKAGE_NAME="$KSU_PACKAGE_NAME" "$DEFCONFIG"
           scripts/config --file out/.config \
             --enable ARM64 \
             --enable 64BIT \
@@ -296,7 +296,7 @@ jobs:
             --enable KRETPROBES \
             --enable EXT4_FS \
             --enable KPM
-          make O=out ARCH=arm64 CC=clang LD=ld.lld LLVM=1 LLVM_IAS=1 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- olddefconfig
+          make O=out ARCH=arm64 CC=clang LD=ld.lld LLVM=1 LLVM_IAS=1 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- KSU_PACKAGE_NAME="$KSU_PACKAGE_NAME" olddefconfig
           grep -q '^CONFIG_KSU=y$' out/.config
           grep -q '^CONFIG_KSU_SUSFS=y$' out/.config
           grep -q '^CONFIG_KPM=y$' out/.config
@@ -320,7 +320,7 @@ jobs:
           export LLVM_IAS=1
           export KCFLAGS=-w
           export CONFIG_SECTION_MISMATCH_WARN_ONLY=y
-          make -s O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 -j"$JOBS"
+          make -s O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 KSU_PACKAGE_NAME="$KSU_PACKAGE_NAME" -j"$JOBS"
           test -s out/arch/arm64/boot/Image.gz
           gzip -t out/arch/arm64/boot/Image.gz
 
