@@ -18,7 +18,7 @@ supported.versions=
 
 # A13VE boot partition
 # AnyKernel3 core expects these variable names in UPPERCASE.
-BLOCK=/dev/block/by-name/boot;
+BLOCK=boot;
 IS_SLOT_DEVICE=0;
 RAMDISK_COMPRESSION=auto;
 
