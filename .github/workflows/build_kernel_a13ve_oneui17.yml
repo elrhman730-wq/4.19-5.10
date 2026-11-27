@@ -1,4 +1,4 @@
-name: Build A13VE Kernel - SukiSU Ultra + SUSFS
+name: Build A13VE Kernel - SukiSU Nova + KPM + SUSFS
 
 on:
   push:
@@ -45,22 +45,6 @@ jobs:
             echo "Shell syntax OK: $script"
           done
 
-      - name: Enforce KPM exclusion
-        shell: bash
-        run: |
-          set -euo pipefail
-          # The actual kernel .config is checked after olddefconfig below.
-          # Do not grep this workflow for the test expression itself.
-          if grep -nE -- '--enable[[:space:]]+KPM([[:space:]]|$)'             .github/workflows/build_kernel_a13ve_oneui17.yml | grep -v 'grep -nE'; then
-            echo "KPM enablement found in the build command." >&2
-            exit 1
-          fi
-          if grep -nE '^KPM_ENABLE=true$|^KPM_PATCH_SOURCE=' Profiles/a13ve_oneui17.env; then
-            echo "KPM must remain disabled in the A13VE profile." >&2
-            exit 1
-          fi
-          echo "KPM is excluded from the A13VE build."
-
   build:
     name: Build A13VE kernel
     needs: validate
@@ -69,10 +53,10 @@ jobs:
     env:
       KERNEL_REPO: https://github.com/AlfCraft07/android_kernel_samsung_mt6768-k419.git
       KERNEL_BRANCH: legion-mt6768
-      # Pin the SUSFS 1.5.7-compatible legacy SukiSU tree. Do not use
-      # its setup.sh: that script clones the official main repository.
-      KSU_REPO: https://github.com/liyafe1997/SukiSU-Ultra.git
-      KSU_COMMIT: f4863b20cc8dc0f8cc67418980f022e43014b598
+      # Pin Nova's manual-hook branch for legacy non-GKI kernels.
+      KSU_REPO: https://github.com/SukiSU-Nova/SukiSU-Nova.git
+      KSU_BRANCH: builtin
+      KSU_COMMIT: 4bec532dd447e2852aa8932afa768255350c103a
       SUSFS_BASE_URL: https://gitlab.com/simonpunk/susfs4ksu/-/raw/kernel-4.19/kernel_patches
       DEFCONFIG: a13ve_defconfig
       JOBS: 4
@@ -108,27 +92,27 @@ jobs:
           echo "$GITHUB_WORKSPACE/toolchain/bin" >> "$GITHUB_PATH"
           toolchain/bin/clang --version
 
-      - name: Integrate pinned SukiSU Ultra SUSFS 1.5.7 tree
+      - name: Integrate pinned SukiSU Nova builtin branch
         working-directory: kernel
         shell: bash
         run: |
           set -euo pipefail
-
-          # This legacy branch has a flat kernel/ layout, not the modern
-          # kernel/supercall layout. Pin the exact commit and integrate it
-          # directly instead of invoking its setup.sh (which clones upstream).
-          git clone --filter=blob:none --no-checkout "$KSU_REPO" KernelSU
+          git clone --filter=blob:none --no-checkout --branch "$KSU_BRANCH" "$KSU_REPO" KernelSU
           git -C KernelSU fetch --depth=1 origin "$KSU_COMMIT"
           git -C KernelSU checkout --detach "$KSU_COMMIT"
           test "$(git -C KernelSU rev-parse HEAD)" = "$KSU_COMMIT"
+
+          # Nova builtin is the manual-hook branch and carries SUSFS/KPM Kconfig.
           test -s KernelSU/kernel/Kconfig
           test -s KernelSU/kernel/Makefile
-          test -s KernelSU/kernel/core_hook.c
-          test -s KernelSU/kernel/sucompat.c
-          grep -q 'CMD_SUSFS_SHOW_VERSION' KernelSU/kernel/core_hook.c
-          grep -q 'susfs_init();' KernelSU/kernel/ksu.c
+          test -s KernelSU/kernel/ksu_main.c
+          test -s KernelSU/kernel/feature/sucompat.c
+          test -s KernelSU/kernel/kernel_compat.h
+          grep -q '^config KSU_SUSFS$' KernelSU/kernel/Kconfig
+          grep -q '^config KPM$' KernelSU/kernel/Kconfig
+          grep -q 'susfs_init();' KernelSU/kernel/ksu_main.c
+          grep -q 'KSU_CAN_USE_KPM' KernelSU/kernel/kernel_compat.h
 
-          # Link the actual flat source directory expected by Linux 4.19.
           mkdir -p drivers
           ln -s "$(realpath --relative-to="$PWD/drivers" "$PWD/KernelSU/kernel")" drivers/kernelsu
           grep -qF 'obj-$(CONFIG_KSU) += kernelsu/' drivers/Makefile || \
@@ -154,8 +138,8 @@ jobs:
           test -s drivers/kernelsu/Makefile
           grep -qF 'obj-$(CONFIG_KSU) += kernelsu/' drivers/Makefile
           grep -qF 'source "drivers/kernelsu/Kconfig"' drivers/Kconfig
-          echo "Integrated SukiSU commit: $(git -C KernelSU rev-parse HEAD)"
-          echo "SukiSU uses its native KPROBES hooks; legacy normal_patches.sh is intentionally not applied."
+          echo "Integrated SukiSU Nova commit: $(git -C KernelSU rev-parse HEAD)"
+          echo "Nova builtin manual hooks selected for Linux 4.19."
 
       - name: Download SUSFS 4.19 source files
         working-directory: kernel
@@ -502,53 +486,6 @@ jobs:
           grep -q 'SUSFS_VERSION "v1.5.7"' include/linux/susfs.h
           ! grep -q 'CL_ZYGOTE_COPY_MNT_NS\|current->susfs_last_fake_mnt_id' fs/namespace.c
 
-      - name: Resolve SUSFS shared-state symbol ownership
-        working-directory: kernel
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
-
-          susfs = Path("fs/susfs.c")
-          sucompat = Path("drivers/kernelsu/sucompat.c")
-          fs_text = susfs.read_text()
-          ksu_text = sucompat.read_text()
-
-          symbol = "susfs_is_sus_su_hooks_enabled"
-          definition = re.compile(
-              rf"(?m)^\s*bool\s+{symbol}\s*(?:__read_mostly\s*)?=\s*false\s*;"
-          )
-          fs_defs = list(definition.finditer(fs_text))
-          if len(fs_defs) != 1:
-              raise SystemExit(
-                  f"{symbol}: expected exactly one initialized owner in fs/susfs.c, found {len(fs_defs)}"
-              )
-
-          duplicate = re.compile(
-              rf"(?m)^bool\s+{symbol}\s+__read_mostly\s*=\s*false;"
-          )
-          ksu_defs = list(duplicate.finditer(ksu_text))
-          if len(ksu_defs) != 1:
-              raise SystemExit(
-                  f"{symbol}: expected exactly one duplicate SukiSU definition in sucompat.c, found {len(ksu_defs)}"
-              )
-
-          ksu_text = duplicate.sub(f"extern bool {symbol} __read_mostly;", ksu_text, count=1)
-          sucompat.write_text(ksu_text)
-
-          if len(list(definition.finditer(fs_text))) != 1:
-              raise SystemExit("SUSFS owner definition changed unexpectedly")
-          if duplicate.search(ksu_text):
-              raise SystemExit("Duplicate initialized SukiSU definition remains")
-          if not re.search(rf"(?m)^extern bool {symbol} __read_mostly;$", ksu_text):
-              raise SystemExit("SukiSU extern declaration was not written")
-          print(f"{symbol}: fs/susfs.c owns storage; sucompat.c references it with extern.")
-          PY
-          test -s fs/susfs.c
-          test -s drivers/kernelsu/sucompat.c
-
       - name: Configure A13VE kernel
         working-directory: kernel
         shell: bash
@@ -578,17 +515,290 @@ jobs:
             --enable KPROBES \
             --enable KRETPROBES \
             --enable EXT4_FS \
-            --disable KPM
+            --enable KPM
           make O=out ARCH=arm64 CC=clang LD=ld.lld LLVM=1 LLVM_IAS=1 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- olddefconfig
           grep -q '^CONFIG_KSU=y$' out/.config
           grep -q '^CONFIG_KSU_SUSFS=y$' out/.config
           grep -q '^CONFIG_KALLSYMS=y$' out/.config
           grep -q '^CONFIG_KALLSYMS_ALL=y$' out/.config
-          if grep -q '^CONFIG_KPM=y$' out/.config; then
-            echo "KPM unexpectedly enabled." >&2
-            exit 1
-          fi
-          grep -E '^(CONFIG_KSU|CONFIG_KSU_SUSFS|CONFIG_KALLSYMS|CONFIG_KALLSYMS_ALL|CONFIG_KPROBES|CONFIG_KRETPROBES|CONFIG_EXT4_FS)=' out/.config
+          grep -q '^CONFIG_KPM=y
+
+      - name: Build kernel Image.gz
+        working-directory: kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export CC=clang
+          export CLANG_TRIPLE=aarch64-linux-gnu-
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export LD=ld.lld
+          export LLVM=1
+          export LLVM_IAS=1
+          export KCFLAGS=-w
+          export CONFIG_SECTION_MISMATCH_WARN_ONLY=y
+          make -s O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 -j"$JOBS"
+          test -s out/arch/arm64/boot/Image.gz
+          gzip -t out/arch/arm64/boot/Image.gz
+
+      - name: Prepare AnyKernel3 package
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
+          cp kernel/out/arch/arm64/boot/Image.gz AnyKernel3/Image.gz
+
+          cat > AnyKernel3/anykernel.sh <<'AK'
+          # AnyKernel3 Ramdisk Mod Script
+          # osm0sis @ xda-developers
+          # Edit by @physwizz Generic
+          ## AnyKernel setup
+          # begin properties
+          properties() { '
+          kernel.string=Legion Kernel for mt6768 - A13VE - SukiSU Nova - SUSFS v1.5.7
+          do.devicecheck=0
+          do.modules=0
+          do.cleanup=1
+          do.cleanuponabort=0
+          device.name1=a13ve
+          device.name2=SM-A137F
+          supported.versions=
+          '; } # end properties
+
+          # Use the same proven boot-image flow as TouchGrass Kernel v0.4.
+          block=/dev/block/by-name/boot;
+          is_slot_device=0;
+          ramdisk_compression=auto;
+
+          ## AnyKernel methods (DO NOT CHANGE)
+          . tools/ak3-core.sh;
+
+          ui_print "- Unpacking boot image";
+          dump_boot;
+
+          mount /system/
+          mount /system_root/
+
+          ui_print "- Installing new boot image";
+          write_boot;
+
+          ui_print "- Done";
+          ui_print " ";
+          ## end install
+          AK
+          chmod 0755 AnyKernel3/anykernel.sh
+
+          # Validate the kernel image and the exact installer that will ship.
+          test -s AnyKernel3/Image.gz
+          gzip -t AnyKernel3/Image.gz
+          sh -n AnyKernel3/anykernel.sh
+          (cd AnyKernel3 && zip -r9 "$GITHUB_WORKSPACE/A13VE-SukiSU-Ultra-SUSFS.zip" . -x "*.git*" "*.github*")
+          test -s A13VE-SukiSU-Ultra-SUSFS.zip
+          unzip -t A13VE-SukiSU-Ultra-SUSFS.zip
+          unzip -p A13VE-SukiSU-Ultra-SUSFS.zip anykernel.sh > "$RUNNER_TEMP/packaged-anykernel.sh"
+          sh -n "$RUNNER_TEMP/packaged-anykernel.sh"
+          grep -qF '. tools/ak3-core.sh' "$RUNNER_TEMP/packaged-anykernel.sh"
+          grep -qF 'block=/dev/block/by-name/boot;' "$RUNNER_TEMP/packaged-anykernel.sh"
+          grep -qF 'dump_boot;' "$RUNNER_TEMP/packaged-anykernel.sh"
+          grep -qF 'write_boot;' "$RUNNER_TEMP/packaged-anykernel.sh"
+          ! grep -qE '(^|[[:space:]])(BLOCK=|split_boot|flash_boot)' "$RUNNER_TEMP/packaged-anykernel.sh"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: A13VE-SukiSU-Ultra-SUSFS
+          path: |
+            A13VE-SukiSU-Ultra-SUSFS.zip
+            kernel/out/arch/arm64/boot/Image.gz
+          if-no-files-found: error
+ out/.config
+          grep -q '^CONFIG_KALLSYMS=y
+
+      - name: Build kernel Image.gz
+        working-directory: kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export CC=clang
+          export CLANG_TRIPLE=aarch64-linux-gnu-
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export LD=ld.lld
+          export LLVM=1
+          export LLVM_IAS=1
+          export KCFLAGS=-w
+          export CONFIG_SECTION_MISMATCH_WARN_ONLY=y
+          make -s O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 -j"$JOBS"
+          test -s out/arch/arm64/boot/Image.gz
+          gzip -t out/arch/arm64/boot/Image.gz
+
+      - name: Prepare AnyKernel3 package
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
+          cp kernel/out/arch/arm64/boot/Image.gz AnyKernel3/Image.gz
+
+          cat > AnyKernel3/anykernel.sh <<'AK'
+          # AnyKernel3 Ramdisk Mod Script
+          # osm0sis @ xda-developers
+          # Edit by @physwizz Generic
+          ## AnyKernel setup
+          # begin properties
+          properties() { '
+          kernel.string=Legion Kernel for mt6768 - A13VE - SukiSU Ultra - SUSFS v1.5.7
+          do.devicecheck=0
+          do.modules=0
+          do.cleanup=1
+          do.cleanuponabort=0
+          device.name1=a13ve
+          device.name2=SM-A137F
+          supported.versions=
+          '; } # end properties
+
+          # Use the same proven boot-image flow as TouchGrass Kernel v0.4.
+          block=/dev/block/by-name/boot;
+          is_slot_device=0;
+          ramdisk_compression=auto;
+
+          ## AnyKernel methods (DO NOT CHANGE)
+          . tools/ak3-core.sh;
+
+          ui_print "- Unpacking boot image";
+          dump_boot;
+
+          mount /system/
+          mount /system_root/
+
+          ui_print "- Installing new boot image";
+          write_boot;
+
+          ui_print "- Done";
+          ui_print " ";
+          ## end install
+          AK
+          chmod 0755 AnyKernel3/anykernel.sh
+
+          # Validate the kernel image and the exact installer that will ship.
+          test -s AnyKernel3/Image.gz
+          gzip -t AnyKernel3/Image.gz
+          sh -n AnyKernel3/anykernel.sh
+          (cd AnyKernel3 && zip -r9 "$GITHUB_WORKSPACE/A13VE-SukiSU-Ultra-SUSFS.zip" . -x "*.git*" "*.github*")
+          test -s A13VE-SukiSU-Ultra-SUSFS.zip
+          unzip -t A13VE-SukiSU-Ultra-SUSFS.zip
+          unzip -p A13VE-SukiSU-Ultra-SUSFS.zip anykernel.sh > "$RUNNER_TEMP/packaged-anykernel.sh"
+          sh -n "$RUNNER_TEMP/packaged-anykernel.sh"
+          grep -qF '. tools/ak3-core.sh' "$RUNNER_TEMP/packaged-anykernel.sh"
+          grep -qF 'block=/dev/block/by-name/boot;' "$RUNNER_TEMP/packaged-anykernel.sh"
+          grep -qF 'dump_boot;' "$RUNNER_TEMP/packaged-anykernel.sh"
+          grep -qF 'write_boot;' "$RUNNER_TEMP/packaged-anykernel.sh"
+          ! grep -qE '(^|[[:space:]])(BLOCK=|split_boot|flash_boot)' "$RUNNER_TEMP/packaged-anykernel.sh"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: A13VE-SukiSU-Ultra-SUSFS
+          path: |
+            A13VE-SukiSU-Ultra-SUSFS.zip
+            kernel/out/arch/arm64/boot/Image.gz
+          if-no-files-found: error
+ out/.config
+          grep -q '^CONFIG_KALLSYMS_ALL=y
+
+      - name: Build kernel Image.gz
+        working-directory: kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export CC=clang
+          export CLANG_TRIPLE=aarch64-linux-gnu-
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export LD=ld.lld
+          export LLVM=1
+          export LLVM_IAS=1
+          export KCFLAGS=-w
+          export CONFIG_SECTION_MISMATCH_WARN_ONLY=y
+          make -s O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 -j"$JOBS"
+          test -s out/arch/arm64/boot/Image.gz
+          gzip -t out/arch/arm64/boot/Image.gz
+
+      - name: Prepare AnyKernel3 package
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
+          cp kernel/out/arch/arm64/boot/Image.gz AnyKernel3/Image.gz
+
+          cat > AnyKernel3/anykernel.sh <<'AK'
+          # AnyKernel3 Ramdisk Mod Script
+          # osm0sis @ xda-developers
+          # Edit by @physwizz Generic
+          ## AnyKernel setup
+          # begin properties
+          properties() { '
+          kernel.string=Legion Kernel for mt6768 - A13VE - SukiSU Ultra - SUSFS v1.5.7
+          do.devicecheck=0
+          do.modules=0
+          do.cleanup=1
+          do.cleanuponabort=0
+          device.name1=a13ve
+          device.name2=SM-A137F
+          supported.versions=
+          '; } # end properties
+
+          # Use the same proven boot-image flow as TouchGrass Kernel v0.4.
+          block=/dev/block/by-name/boot;
+          is_slot_device=0;
+          ramdisk_compression=auto;
+
+          ## AnyKernel methods (DO NOT CHANGE)
+          . tools/ak3-core.sh;
+
+          ui_print "- Unpacking boot image";
+          dump_boot;
+
+          mount /system/
+          mount /system_root/
+
+          ui_print "- Installing new boot image";
+          write_boot;
+
+          ui_print "- Done";
+          ui_print " ";
+          ## end install
+          AK
+          chmod 0755 AnyKernel3/anykernel.sh
+
+          # Validate the kernel image and the exact installer that will ship.
+          test -s AnyKernel3/Image.gz
+          gzip -t AnyKernel3/Image.gz
+          sh -n AnyKernel3/anykernel.sh
+          (cd AnyKernel3 && zip -r9 "$GITHUB_WORKSPACE/A13VE-SukiSU-Ultra-SUSFS.zip" . -x "*.git*" "*.github*")
+          test -s A13VE-SukiSU-Ultra-SUSFS.zip
+          unzip -t A13VE-SukiSU-Ultra-SUSFS.zip
+          unzip -p A13VE-SukiSU-Ultra-SUSFS.zip anykernel.sh > "$RUNNER_TEMP/packaged-anykernel.sh"
+          sh -n "$RUNNER_TEMP/packaged-anykernel.sh"
+          grep -qF '. tools/ak3-core.sh' "$RUNNER_TEMP/packaged-anykernel.sh"
+          grep -qF 'block=/dev/block/by-name/boot;' "$RUNNER_TEMP/packaged-anykernel.sh"
+          grep -qF 'dump_boot;' "$RUNNER_TEMP/packaged-anykernel.sh"
+          grep -qF 'write_boot;' "$RUNNER_TEMP/packaged-anykernel.sh"
+          ! grep -qE '(^|[[:space:]])(BLOCK=|split_boot|flash_boot)' "$RUNNER_TEMP/packaged-anykernel.sh"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: A13VE-SukiSU-Ultra-SUSFS
+          path: |
+            A13VE-SukiSU-Ultra-SUSFS.zip
+            kernel/out/arch/arm64/boot/Image.gz
+          if-no-files-found: error
+ out/.config
+          grep -q 'KSU_CAN_USE_KPM' drivers/kernelsu/kernel_compat.h
+          grep -E '^(CONFIG_KSU|CONFIG_KSU_SUSFS|CONFIG_KPM|CONFIG_KALLSYMS|CONFIG_KALLSYMS_ALL|CONFIG_KPROBES|CONFIG_KRETPROBES|CONFIG_EXT4_FS)=' out/.config
 
       - name: Build kernel Image.gz
         working-directory: kernel
