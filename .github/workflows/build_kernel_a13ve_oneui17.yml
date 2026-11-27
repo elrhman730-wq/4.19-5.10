@@ -210,10 +210,16 @@ jobs:
           test -s fs/susfs.c
           test -s include/linux/susfs.h
           test -s include/linux/susfs_def.h
-          grep -q '^#define SUSFS_MAGIC' include/linux/susfs_def.h
-          grep -q '^#define CMD_SUSFS_ADD_SUS_PATH_LOOP' include/linux/susfs_def.h
-          grep -q '^#define CMD_SUSFS_ADD_SUS_MAP' include/linux/susfs_def.h
-          grep -q '^#define CMD_SUSFS_ENABLE_AVC_LOG_SPOOFING' include/linux/susfs_def.h
+          # SUSFS headers differ slightly across 4.19 backport revisions.
+          # Search both public headers and tolerate whitespace / # define formatting.
+          for symbol in SUSFS_MAGIC CMD_SUSFS_ADD_SUS_PATH_LOOP CMD_SUSFS_ADD_SUS_MAP CMD_SUSFS_ENABLE_AVC_LOG_SPOOFING; do
+            if ! grep -Eq "(^|[^[:alnum:]_])${symbol}([^[:alnum:]_]|$)" include/linux/susfs.h include/linux/susfs_def.h; then
+              echo "Missing required SUSFS symbol: ${symbol}"
+              echo "Available SUSFS command definitions:"
+              grep -nE 'SUSFS_MAGIC|CMD_SUSFS_' include/linux/susfs.h include/linux/susfs_def.h || true
+              exit 1
+            fi
+          done
 
       - name: Apply SUSFS base patch
         working-directory: kernel
