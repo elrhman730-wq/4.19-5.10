@@ -6,7 +6,7 @@
 ## AnyKernel setup
 # begin properties
 properties() { '
-kernel.string=Legion Kernel for mt6768 - A13VE - SukiSU Nova - SUSFS v2.4.0
+kernel.string=Legion Kernel for mt6768 - A13VE - KernelSU-Next v3.4.0 - SUSFS v2.4.0
 do.devicecheck=0
 do.modules=0
 do.cleanup=1
