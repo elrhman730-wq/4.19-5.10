@@ -19,7 +19,11 @@ required = [
     "config KSU_SUSFS_OPEN_REDIRECT",
     "config KSU_SUSFS_SUS_MAP",
 ]
-missing = [item for item in required if source.count(item) != 1]
+import re
+missing = [
+    item for item in required
+    if len(re.findall(r"(?m)^" + re.escape(item) + r"$", source)) != 1
+]
 if missing:
     raise SystemExit(f"KernelSU-Next SUSFS Kconfig anchors missing or duplicated: {missing}")
 
