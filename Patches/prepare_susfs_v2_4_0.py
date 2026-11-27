@@ -50,7 +50,7 @@ if end not in data:
 # anchor in fs/namespace.c after all remaining SUSFS hunks are applied.
 import re
 pattern = re.compile(
-    r"(?m)^@@ -2945,6 \\+3155,9 @@ struct mnt_namespace \\*copy_mnt_ns.*?\n(?=^@@ -3527,3 \\+3740,43 @@)",
+    r"(?m)^@@ -2945,6 \+3155,9 @@ struct mnt_namespace \*copy_mnt_ns.*?\n(?=^@@ -3527,3 \+3740,43 @@)",
     re.S,
 )
 data, removed = pattern.subn("", data)
