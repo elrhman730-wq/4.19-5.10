@@ -204,7 +204,7 @@ jobs:
         run: |
           set -euo pipefail
           curl -fL "$SUSFS_PATCH_URL" -o "$RUNNER_TEMP/susfs-2.4.0.patch"
-          echo "68d1667d3ffe932c8694cfeb7eda66ef401dd6ace47b4323c2c7c763118b1300  $RUNNER_TEMP/susfs-2.4.0.patch" | sha256sum -c -
+          echo "7e8463304562944f889159bcc554c0ed8891b34021ab5ef1bba15ee924780ab5  $RUNNER_TEMP/susfs-2.4.0.patch" | sha256sum -c -
           grep -Fq '+#define SUSFS_VERSION "v2.4.0"' "$RUNNER_TEMP/susfs-2.4.0.patch"
           python3 "$GITHUB_WORKSPACE/Patches/prepare_susfs_v2_4_0.py" "$RUNNER_TEMP/susfs-2.4.0.patch"
           patch --dry-run --batch --forward --fuzz=3 -p1 < "$RUNNER_TEMP/susfs-2.4.0.patch"
