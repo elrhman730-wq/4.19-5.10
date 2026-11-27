@@ -641,8 +641,20 @@ jobs:
 
           # Fail the build if the generated installer regresses to legacy
           # lowercase variables or omits AnyKernel3's setup/attribute phase.
-          grep -q '^BLOCK=boot
+          grep -q '^BLOCK=boot$' AnyKernel3/anykernel.sh
+          ! grep -q '^block=' AnyKernel3/anykernel.sh
+          grep -qF '. tools/ak3-core.sh && attributes' AnyKernel3/anykernel.sh
+          grep -q '^IS_SLOT_DEVICE=0$' AnyKernel3/anykernel.sh
+          grep -q '^split_boot$' AnyKernel3/anykernel.sh
+          grep -q '^flash_boot$' AnyKernel3/anykernel.sh
+          test -s AnyKernel3/Image.gz
+          gzip -t AnyKernel3/Image.gz
 
+          (cd AnyKernel3 && zip -r9 "$GITHUB_WORKSPACE/A13VE-SukiSU-Ultra-SUSFS.zip" . -x "*.git*" "*.github*")
+          test -s A13VE-SukiSU-Ultra-SUSFS.zip
+          unzip -t A13VE-SukiSU-Ultra-SUSFS.zip
+          unzip -p A13VE-SukiSU-Ultra-SUSFS.zip anykernel.sh | grep -q '^BLOCK=boot$'
+          unzip -p A13VE-SukiSU-Ultra-SUSFS.zip anykernel.sh | grep -qF '. tools/ak3-core.sh && attributes'
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
