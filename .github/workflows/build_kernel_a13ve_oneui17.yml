@@ -31,6 +31,8 @@ jobs:
           test -s Patches/check_error.sh
           test -s Patches/Rekernel/rekernel-4.19.patch
           test -s Patches/prepare_susfs_v2_4_0.py
+          test -s Patches/patch_sukisu_nova_manager_v3_hooks.py
+          python3 -m py_compile Patches/patch_sukisu_nova_manager_v3_hooks.py
           test -s kernel3.sh
           sh -n kernel3.sh
           echo "All required A13VE build inputs exist."
@@ -57,6 +59,7 @@ jobs:
       KSU_REPO: https://github.com/SukiSU-Nova/SukiSU-Nova.git
       KSU_BRANCH: builtin
       KSU_COMMIT: 4bec532dd447e2852aa8932afa768255350c103a
+      KSU_PACKAGE_NAME: com.sukisu.nova
       SUSFS_PATCH_URL: https://raw.githubusercontent.com/JackA1ltman/NonGKI_Kernel_Build_2nd/mainline/Patches/Patch/susfs_patch_to_4.19.patch
       DEFCONFIG: a13ve_defconfig
       JOBS: 4
@@ -112,6 +115,8 @@ jobs:
           grep -q '^config KPM$' KernelSU/kernel/Kconfig
           grep -q 'susfs_init();' KernelSU/kernel/ksu_main.c
           grep -q 'KSU_CAN_USE_KPM' KernelSU/kernel/kernel_compat.h
+          grep -Fq 'KSU_PACKAGE_NAME ?= com.sukisu.nova' KernelSU/kernel/Makefile
+          echo "Verified SukiSU Nova v3.0.0 manager package: $KSU_PACKAGE_NAME"
 
           mkdir -p drivers
           ln -s "$(realpath --relative-to="$PWD/drivers" "$PWD/KernelSU/kernel")" drivers/kernelsu
@@ -140,6 +145,16 @@ jobs:
           grep -qF 'source "drivers/kernelsu/Kconfig"' drivers/Kconfig
           echo "Integrated SukiSU Nova commit: $(git -C KernelSU rev-parse HEAD)"
           echo "Nova builtin manual hooks selected for Linux 4.19."
+
+      - name: Apply SukiSU Nova v3 Manager and manual hooks
+        working-directory: kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 "$GITHUB_WORKSPACE/Patches/patch_sukisu_nova_manager_v3_hooks.py" "$PWD"
+          grep -Fq 'ksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);' fs/exec.c
+          grep -Fq 'ksu_handle_sys_reboot(magic1, magic2, cmd, &arg);' kernel/reboot.c
+          echo "SukiSU Nova v3.0.0 manual hooks verified."
 
       - name: Remove unavailable static_call header on Linux 4.19
         working-directory: kernel
