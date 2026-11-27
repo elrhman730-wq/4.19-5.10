@@ -49,22 +49,22 @@ if end not in data:
 # the function where it is declared. The workflow inserts it at a unique
 # function-local anchor after applying the remaining SUSFS hunks.
 import re
-matches = list(re.finditer(r"(?m)^@@ -2945,6 \\+3155,9 @@ struct mnt_namespace \\*copy_mnt_ns.*$", data))
+matches = list(re.finditer(r"(?m)^@@ -2945,6 \+3155,9 @@ struct mnt_namespace \*copy_mnt_ns.*$", data))
 if len(matches) != 1:
     raise SystemExit(f"Expected one copy_mnt_ns SUSFS hunk, found {len(matches)}")
 hunk_start = matches[0].start()
-next_hunk = data.find("\\n@@ ", matches[0].end())
+next_hunk = data.find("\n@@ ", matches[0].end())
 if next_hunk < 0:
     next_hunk = len(data)
 hunk = data[hunk_start:next_hunk]
 for line in (
     "+#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT",
-    "+\\tcopy_flags |= CL_COPY_MNT_NS;",
+    "+\tcopy_flags |= CL_COPY_MNT_NS;",
     "+#endif",
 ):
     if hunk.count(line) != 1:
         raise SystemExit(f"Expected exactly one unsafe namespace insertion line: {line!r}")
-    hunk = hunk.replace(line + "\\n", "", 1)
+    hunk = hunk.replace(line + "\n", "", 1)
 hunk = hunk.replace("@@ -2945,6 +3155,9 @@", "@@ -2945,6 +3155,6 @@", 1)
 data = data[:hunk_start] + hunk + data[next_hunk:]
 if "copy_flags |= CL_COPY_MNT_NS;" in data:
