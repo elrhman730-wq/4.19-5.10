@@ -617,46 +617,42 @@ jobs:
           cp kernel/out/arch/arm64/boot/Image.gz AnyKernel3/Image.gz
 
           cat > AnyKernel3/anykernel.sh <<'AK'
-          #!/sbin/sh
+          # AnyKernel3 Ramdisk Mod Script
+          # osm0sis @ xda-developers
+          # Edit by @physwizz Generic
+          ## AnyKernel setup
+          # begin properties
           properties() { '
           kernel.string=Legion Kernel for mt6768 - A13VE - SukiSU Ultra - SUSFS v1.5.7
           do.devicecheck=0
           do.modules=0
-          do.systemless=1
           do.cleanup=1
           do.cleanuponabort=0
           device.name1=a13ve
           device.name2=SM-A137F
-          '; }
+          supported.versions=
+          '; } # end properties
 
-          # A13VE is non-A/B. Resolve the real Samsung boot block by-name
-          # node before calling AnyKernel3; split_boot requires an existing
-          # absolute block path and does not perform partition discovery.
-          IS_SLOT_DEVICE=0
-          RAMDISK_COMPRESSION=auto
-          PATCH_VBMETA_FLAG=auto
-          . tools/ak3-core.sh
+          # Use the same proven boot-image flow as TouchGrass Kernel v0.4.
+          block=/dev/block/by-name/boot;
+          is_slot_device=0;
+          ramdisk_compression=auto;
 
-          BLOCK=""
-          for candidate in \
-            /dev/block/by-name/BOOT \
-            /dev/block/bootdevice/by-name/BOOT \
-            /dev/block/platform/*/by-name/BOOT \
-            /dev/block/platform/*/*/by-name/BOOT \
-            /dev/block/by-name/boot \
-            /dev/block/bootdevice/by-name/boot \
-            /dev/block/platform/*/by-name/boot \
-            /dev/block/platform/*/*/by-name/boot
-          do
-            if [ -e "$candidate" ]; then
-              BLOCK="$candidate"
-              break
-            fi
-          done
+          ## AnyKernel methods (DO NOT CHANGE)
+          . tools/ak3-core.sh;
 
-          [ -n "$BLOCK" ] || abort "A13VE boot partition was not found under /dev/block/*/by-name. Aborting..."
-          split_boot
-          flash_boot
+          ui_print "- Unpacking boot image";
+          dump_boot;
+
+          mount /system/
+          mount /system_root/
+
+          ui_print "- Installing new boot image";
+          write_boot;
+
+          ui_print "- Done";
+          ui_print " ";
+          ## end install
           AK
           chmod 0755 AnyKernel3/anykernel.sh
 
@@ -670,9 +666,10 @@ jobs:
           unzip -p A13VE-SukiSU-Ultra-SUSFS.zip anykernel.sh > "$RUNNER_TEMP/packaged-anykernel.sh"
           sh -n "$RUNNER_TEMP/packaged-anykernel.sh"
           grep -qF '. tools/ak3-core.sh' "$RUNNER_TEMP/packaged-anykernel.sh"
-          grep -qF 'split_boot' "$RUNNER_TEMP/packaged-anykernel.sh"
-          grep -qF 'flash_boot' "$RUNNER_TEMP/packaged-anykernel.sh"
-          grep -qF 'A13VE boot partition was not found' "$RUNNER_TEMP/packaged-anykernel.sh"
+          grep -qF 'block=/dev/block/by-name/boot;' "$RUNNER_TEMP/packaged-anykernel.sh"
+          grep -qF 'dump_boot;' "$RUNNER_TEMP/packaged-anykernel.sh"
+          grep -qF 'write_boot;' "$RUNNER_TEMP/packaged-anykernel.sh"
+          ! grep -qE '(^|[[:space:]])(BLOCK=|split_boot|flash_boot)' "$RUNNER_TEMP/packaged-anykernel.sh"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
