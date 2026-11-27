@@ -32,8 +32,7 @@ jobs:
           test -s Patches/found_gcc.sh
           test -s Patches/check_error.sh
           test -s Patches/Rekernel/rekernel-4.19.patch
-          test -s Patches/port_susfs_mount_ids.py
-          test -s Patches/susfs_nova_compat.py
+          test -s Patches/prepare_susfs_v2_4_0.py
           echo "All required A13VE build inputs exist."
 
       - name: Check shell script syntax
@@ -58,7 +57,7 @@ jobs:
       KSU_REPO: https://github.com/SukiSU-Nova/SukiSU-Nova.git
       KSU_BRANCH: builtin
       KSU_COMMIT: 4bec532dd447e2852aa8932afa768255350c103a
-      SUSFS_BASE_URL: https://gitlab.com/simonpunk/susfs4ksu/-/raw/kernel-4.19/kernel_patches
+      SUSFS_PATCH_URL: https://raw.githubusercontent.com/JackA1ltman/NonGKI_Kernel_Build_2nd/mainline/Patches/Patch/susfs_patch_to_4.19.patch
       DEFCONFIG: a13ve_defconfig
       JOBS: 4
 
@@ -199,53 +198,24 @@ jobs:
                   raise SystemExit(f"SUSFS common-header include check failed: {header}")
           print("Applied Linux 4.19 KPM compatibility and file-scope SUSFS headers.")
           PY
-      - name: Download SUSFS 4.19 source files
+      - name: Download, adapt and apply SUSFS v2.4.0
         working-directory: kernel
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p fs include/linux
-          curl -fL "$SUSFS_BASE_URL/fs/susfs.c" -o fs/susfs.c
-          curl -fL "$SUSFS_BASE_URL/include/linux/susfs.h" -o include/linux/susfs.h
-          curl -fL "$SUSFS_BASE_URL/include/linux/susfs_def.h" -o include/linux/susfs_def.h
+          curl -fL "$SUSFS_PATCH_URL" -o "$RUNNER_TEMP/susfs-2.4.0.patch"
+          echo "68d1667d3ffe932c8694cfeb7eda66ef401dd6ace47b4323c2c7c763118b1300  $RUNNER_TEMP/susfs-2.4.0.patch" | sha256sum -c -
+          grep -Fq '+#define SUSFS_VERSION "v2.4.0"' "$RUNNER_TEMP/susfs-2.4.0.patch"
+          python3 "$GITHUB_WORKSPACE/Patches/prepare_susfs_v2_4_0.py" "$RUNNER_TEMP/susfs-2.4.0.patch"
+          patch --dry-run --batch --forward --fuzz=3 -p1 < "$RUNNER_TEMP/susfs-2.4.0.patch"
+          patch --batch --forward --fuzz=3 -p1 < "$RUNNER_TEMP/susfs-2.4.0.patch"
           test -s fs/susfs.c
           test -s include/linux/susfs.h
           test -s include/linux/susfs_def.h
-          # Validate the legacy non-GKI 4.19 interface used by Nova builtin.
-          # SUSFS 1.5.5 intentionally has no SUSFS_MAGIC, SUS_MAP, or v2.x AVC command.
-          grep -Fq '#define SUSFS_VERSION "v1.5.5"' include/linux/susfs.h
-          for symbol in CMD_SUSFS_ADD_SUS_PATH CMD_SUSFS_ADD_SUS_MOUNT CMD_SUSFS_ADD_SUS_KSTAT CMD_SUSFS_SET_UNAME CMD_SUSFS_SET_CMDLINE_OR_BOOTCONFIG CMD_SUSFS_SHOW_VERSION; do
-            if ! grep -Eq "(^|[^[:alnum:]_])${symbol}([^[:alnum:]_]|$)" include/linux/susfs_def.h; then
-              echo "Missing SUSFS 1.5.5 interface symbol: ${symbol}"
-              grep -nE 'CMD_SUSFS_' include/linux/susfs_def.h || true
-              exit 1
-            fi
-          done
-
-      - name: Apply SUSFS base patch
-        working-directory: kernel
-        shell: bash
-        run: |
-          set -euo pipefail
-          patch="$GITHUB_WORKSPACE/Patches/Patch/50_add_susfs_in_kernel-4.19.patch"
-          echo "Checking SUSFS base patch against the selected Legion 4.19 source..."
-          patch --dry-run --batch --forward --fuzz=3 -p1 < "$patch"
-          echo "Applying SUSFS base patch with bounded context fuzz (maximum 3 lines)..."
-          patch --batch --forward --fuzz=3 -p1 < "$patch"
-
-      - name: Port SUSFS mount IDs for Legion Linux 4.19
-        working-directory: kernel
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 "$GITHUB_WORKSPACE/Patches/port_susfs_mount_ids.py"
-
-      - name: Add SukiSU Nova compatibility for legacy SUSFS 4.19
-        working-directory: kernel
-        shell: bash
-        run: |
-          set -euo pipefail
-          python3 "$GITHUB_WORKSPACE/Patches/susfs_nova_compat.py"
+          grep -Fq '#define SUSFS_VERSION "v2.4.0"' include/linux/susfs.h
+          grep -Fq '#define SUSFS_VARIANT "NON-GKI"' include/linux/susfs.h
+          grep -Fq 'obj-$(CONFIG_KSU_SUSFS) += susfs.o' fs/Makefile
+          echo "Applied and verified SUSFS v2.4.0 NON-GKI kernel core."
 
       - name: Configure A13VE kernel
         working-directory: kernel
