@@ -7,8 +7,8 @@ import sys
 patch_path = Path(sys.argv[1])
 data = patch_path.read_text()
 pattern = re.compile(
-    r"@@ -953,7 \\+1109,22 @@ vfs_kern_mount\\(struct file_system_type \\*type, int flags, const char \\*name, void.*?\\n"
-    r"(?=@@ -1008,7 \\+1179,40 @@ static struct mount \\*clone_mnt)",
+    r"@@ -953,7 \+1109,22 @@ vfs_kern_mount\(struct file_system_type \*type, int flags, const char \*name, void.*?\n"
+    r"(?=@@ -1008,7 \+1179,40 @@ static struct mount \*clone_mnt)",
     re.S,
 )
 replacement = """@@ -1050,7 +1057,14 @@ struct vfsmount *vfs_create_mount(struct fs_context *fc)
