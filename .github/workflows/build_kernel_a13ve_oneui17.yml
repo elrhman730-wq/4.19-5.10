@@ -328,10 +328,10 @@ jobs:
           unzip -p A13VE-SukiSU-Nova-SUSFS.zip anykernel.sh > "$RUNNER_TEMP/packaged-anykernel.sh"
           sh -n "$RUNNER_TEMP/packaged-anykernel.sh"
           grep -qF '. tools/ak3-core.sh' "$RUNNER_TEMP/packaged-anykernel.sh"
-          grep -qF 'block=/dev/block/by-name/boot;' "$RUNNER_TEMP/packaged-anykernel.sh"
+          grep -qF 'BLOCK=boot;' "$RUNNER_TEMP/packaged-anykernel.sh"
           grep -qF 'dump_boot;' "$RUNNER_TEMP/packaged-anykernel.sh"
           grep -qF 'write_boot;' "$RUNNER_TEMP/packaged-anykernel.sh"
-          ! grep -qE '(^|[[:space:]])(BLOCK=|split_boot|flash_boot)' "$RUNNER_TEMP/packaged-anykernel.sh"
+          ! grep -qE '(^|[[:space:]])(block=|split_boot|flash_boot)' "$RUNNER_TEMP/packaged-anykernel.sh"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
