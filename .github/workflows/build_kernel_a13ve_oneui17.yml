@@ -221,12 +221,12 @@ jobs:
           from pathlib import Path
           p = Path("fs/namespace.c")
           s = p.read_text()
-          anchor = "\\tif (user_ns != ns->user_ns)\\n\\t\\tcopy_flags |= CL_SHARED_TO_SLAVE | CL_UNPRIVILEGED;\\n#ifdef CONFIG_KDP_NS"
-          addition = "\\n#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\\n\\tcopy_flags |= CL_COPY_MNT_NS;\\n#endif"
+          anchor = "\tif (user_ns != ns->user_ns)\n\t\tcopy_flags |= CL_SHARED_TO_SLAVE | CL_UNPRIVILEGED;\n#ifdef CONFIG_KDP_NS"
+          addition = "\n#ifdef CONFIG_KSU_SUSFS_SUS_MOUNT\n\tcopy_flags |= CL_COPY_MNT_NS;\n#endif"
           if s.count(anchor) != 1:
               raise SystemExit(f"copy_mnt_ns insertion anchor expected once, found {s.count(anchor)}")
           if "copy_flags |= CL_COPY_MNT_NS;" not in s:
-              s = s.replace(anchor, anchor.replace("\\n#ifdef CONFIG_KDP_NS", addition + "\\n#ifdef CONFIG_KDP_NS"), 1)
+              s = s.replace(anchor, anchor.replace("\n#ifdef CONFIG_KDP_NS", addition + "\n#ifdef CONFIG_KDP_NS"), 1)
               p.write_text(s)
           if s.count("copy_flags |= CL_COPY_MNT_NS;") != 1:
               raise SystemExit("SUSFS namespace-copy flag was not inserted exactly once")
