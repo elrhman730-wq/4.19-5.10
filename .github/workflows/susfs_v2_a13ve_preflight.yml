@@ -51,6 +51,7 @@ jobs:
       - name: Dry-run SUSFS v2.4.0 against Linux 4.19
         run: |
           set -euo pipefail
+          python3 "$GITHUB_WORKSPACE/Patches/prepare_susfs_v2_4_0.py" "$GITHUB_WORKSPACE/susfs-2.4.0.patch"
           cd kernel
           set +e
           patch --dry-run --batch --forward --fuzz=3 -p1 < "$GITHUB_WORKSPACE/susfs-2.4.0.patch" 2>&1 | tee "$GITHUB_WORKSPACE/susfs-v2-dry-run.log"
