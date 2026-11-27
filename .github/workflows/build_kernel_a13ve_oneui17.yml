@@ -13,7 +13,7 @@ permissions:
 jobs:
   validate:
     name: Validate KSUN build inputs
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    if: github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_sha == github.sha)
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout
