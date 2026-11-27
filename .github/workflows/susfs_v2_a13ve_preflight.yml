@@ -5,6 +5,7 @@ on:
     branches: [ main ]
     paths:
       - '.github/workflows/susfs_v2_a13ve_preflight.yml'
+      - 'Patches/prepare_susfs_v2_4_0.py'
   workflow_dispatch:
 
 permissions:
