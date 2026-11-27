@@ -32,6 +32,8 @@ jobs:
           test -s Patches/found_gcc.sh
           test -s Patches/check_error.sh
           test -s Patches/Rekernel/rekernel-4.19.patch
+          test -s Patches/port_susfs_mount_ids.py
+          test -s Patches/susfs_nova_compat.py
           echo "All required A13VE build inputs exist."
 
       - name: Check shell script syntax
@@ -230,6 +232,20 @@ jobs:
           patch --dry-run --batch --forward --fuzz=3 -p1 < "$patch"
           echo "Applying SUSFS base patch with bounded context fuzz (maximum 3 lines)..."
           patch --batch --forward --fuzz=3 -p1 < "$patch"
+
+      - name: Port SUSFS mount IDs for Legion Linux 4.19
+        working-directory: kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 "$GITHUB_WORKSPACE/Patches/port_susfs_mount_ids.py"
+
+      - name: Add SukiSU Nova compatibility for legacy SUSFS 4.19
+        working-directory: kernel
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 "$GITHUB_WORKSPACE/Patches/susfs_nova_compat.py"
 
       - name: Configure A13VE kernel
         working-directory: kernel
