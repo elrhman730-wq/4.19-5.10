@@ -61,7 +61,7 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y git curl wget zip unzip jq bc bison flex \
-            build-essential ccache libssl-dev libelf-dev libz-dev zlib1g-dev cmake python3 python-is-python3 \
+            build-essential ccache libssl-dev libelf-dev zlib1g-dev cmake python3 python-is-python3 \
             dwarves device-tree-compiler rsync lld llvm clang \
             gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu
 
