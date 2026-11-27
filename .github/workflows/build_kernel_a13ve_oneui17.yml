@@ -214,6 +214,24 @@ jobs:
           grep -Fq '#define SUSFS_VARIANT "NON-GKI"' include/linux/susfs.h
           grep -Fq 'obj-$(CONFIG_KSU_SUSFS) += susfs.o' fs/Makefile
           echo "Applied and verified SUSFS v2.4.0 NON-GKI kernel core."
+          # SUSFS v2.4.0 defines its private STATX result bits in
+          # susfs_def.h. fs/stat.c uses those bits but the upstream patch
+          # does not add the corresponding include on this 4.19 tree.
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("fs/stat.c")
+          s = p.read_text()
+          marker = "#include <linux/compat.h>"
+          inc = "#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT\\n#include <linux/susfs_def.h>\\n#endif"
+          if inc not in s:
+              if s.count(marker) != 1:
+                  raise SystemExit(f"fs/stat.c include anchor mismatch: {s.count(marker)}")
+              s = s.replace(marker, marker + "\\n" + inc, 1)
+              p.write_text(s)
+          if inc not in p.read_text():
+              raise SystemExit("SUSFS KSTAT definitions were not exposed to fs/stat.c")
+          print("Added guarded SUSFS KSTAT definitions include to fs/stat.c")
+          PY
 
       - name: Configure A13VE kernel
         working-directory: kernel
