@@ -31,6 +31,8 @@ jobs:
           test -s Patches/check_error.sh
           test -s Patches/Rekernel/rekernel-4.19.patch
           test -s Patches/prepare_susfs_v2_4_0.py
+          test -s kernel3.sh
+          sh -n kernel3.sh
           echo "All required A13VE build inputs exist."
 
       - name: Check shell script syntax
@@ -314,45 +316,7 @@ jobs:
           git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
           cp kernel/out/arch/arm64/boot/Image.gz AnyKernel3/Image.gz
 
-          cat > AnyKernel3/anykernel.sh <<'AK'
-          # AnyKernel3 Ramdisk Mod Script
-          # osm0sis @ xda-developers
-          # Edit by @physwizz Generic
-          ## AnyKernel setup
-          # begin properties
-          properties() { '
-          kernel.string=Legion Kernel for mt6768 - A13VE - SukiSU Nova - SUSFS v2.4.0
-          do.devicecheck=0
-          do.modules=0
-          do.cleanup=1
-          do.cleanuponabort=0
-          device.name1=a13ve
-          device.name2=SM-A137F
-          supported.versions=
-          '; } # end properties
-
-          # Use the same proven boot-image flow as TouchGrass Kernel v0.4.
-          block=/dev/block/by-name/boot;
-          is_slot_device=0;
-          ramdisk_compression=auto;
-
-          ## AnyKernel methods (DO NOT CHANGE)
-          . tools/ak3-core.sh;
-
-          ui_print "- Unpacking boot image";
-          dump_boot;
-
-          mount /system/
-          mount /system_root/
-
-          ui_print "- Installing new boot image";
-          write_boot;
-
-          ui_print "- Done";
-          ui_print " ";
-          ## end install
-          AK
-          chmod 0755 AnyKernel3/anykernel.sh
+          install -m 0755 kernel3.sh AnyKernel3/anykernel.sh
 
           # Validate the kernel image and the exact installer that will ship.
           test -s AnyKernel3/Image.gz
