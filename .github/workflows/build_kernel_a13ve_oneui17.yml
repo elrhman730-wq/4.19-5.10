@@ -1,12 +1,9 @@
 name: Build A13VE Kernel - SukiSU Nova + KPM + SUSFS
 
 on:
-  push:
-    branches: [ main ]
-    paths:
-      - '.github/workflows/build_kernel_a13ve_oneui17.yml'
-      - 'Profiles/a13ve_oneui17.env'
-      - 'Patches/**'
+  workflow_run:
+    workflows: ["SUSFS v2.4.0 A13VE Compatibility Preflight"]
+    types: [completed]
   workflow_dispatch:
 
 permissions:
