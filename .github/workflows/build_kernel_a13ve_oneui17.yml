@@ -176,7 +176,7 @@ jobs:
 
           dispatch = Path("KernelSU/kernel/supercall/dispatch.c")
           src = dispatch.read_text()
-          include = "#include <linux/susfs_def.h>"
+          include = "#include <linux/susfs.h>"
           if include not in src:
               src = include + "\n" + src
           dispatch.write_text(src)
