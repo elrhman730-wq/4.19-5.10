@@ -491,8 +491,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # The Legion Makefile defaults to a non-existent bundled Clang r383902.
-          # Explicitly select the installed Proton Clang and LLVM toolchain.
           export ARCH=arm64
           export SUBARCH=arm64
           export CC=clang
@@ -519,9 +517,11 @@ jobs:
           make O=out ARCH=arm64 CC=clang LD=ld.lld LLVM=1 LLVM_IAS=1 CROSS_COMPILE=aarch64-linux-gnu- CLANG_TRIPLE=aarch64-linux-gnu- olddefconfig
           grep -q '^CONFIG_KSU=y$' out/.config
           grep -q '^CONFIG_KSU_SUSFS=y$' out/.config
+          grep -q '^CONFIG_KPM=y$' out/.config
           grep -q '^CONFIG_KALLSYMS=y$' out/.config
           grep -q '^CONFIG_KALLSYMS_ALL=y$' out/.config
-          grep -q '^CONFIG_KPM=y
+          grep -q 'KSU_CAN_USE_KPM' drivers/kernelsu/kernel_compat.h
+          grep -E '^(CONFIG_KSU|CONFIG_KSU_SUSFS|CONFIG_KPM|CONFIG_KALLSYMS|CONFIG_KALLSYMS_ALL|CONFIG_KPROBES|CONFIG_KRETPROBES|CONFIG_EXT4_FS)=' out/.config
 
       - name: Build kernel Image.gz
         working-directory: kernel
@@ -593,10 +593,10 @@ jobs:
           test -s AnyKernel3/Image.gz
           gzip -t AnyKernel3/Image.gz
           sh -n AnyKernel3/anykernel.sh
-          (cd AnyKernel3 && zip -r9 "$GITHUB_WORKSPACE/A13VE-SukiSU-Ultra-SUSFS.zip" . -x "*.git*" "*.github*")
-          test -s A13VE-SukiSU-Ultra-SUSFS.zip
-          unzip -t A13VE-SukiSU-Ultra-SUSFS.zip
-          unzip -p A13VE-SukiSU-Ultra-SUSFS.zip anykernel.sh > "$RUNNER_TEMP/packaged-anykernel.sh"
+          (cd AnyKernel3 && zip -r9 "$GITHUB_WORKSPACE/A13VE-SukiSU-Nova-SUSFS.zip" . -x "*.git*" "*.github*")
+          test -s A13VE-SukiSU-Nova-SUSFS.zip
+          unzip -t A13VE-SukiSU-Nova-SUSFS.zip
+          unzip -p A13VE-SukiSU-Nova-SUSFS.zip anykernel.sh > "$RUNNER_TEMP/packaged-anykernel.sh"
           sh -n "$RUNNER_TEMP/packaged-anykernel.sh"
           grep -qF '. tools/ak3-core.sh' "$RUNNER_TEMP/packaged-anykernel.sh"
           grep -qF 'block=/dev/block/by-name/boot;' "$RUNNER_TEMP/packaged-anykernel.sh"
@@ -607,285 +607,8 @@ jobs:
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: A13VE-SukiSU-Ultra-SUSFS
+          name: A13VE-SukiSU-Nova-SUSFS
           path: |
-            A13VE-SukiSU-Ultra-SUSFS.zip
-            kernel/out/arch/arm64/boot/Image.gz
-          if-no-files-found: error
- out/.config
-          grep -q '^CONFIG_KALLSYMS=y
-
-      - name: Build kernel Image.gz
-        working-directory: kernel
-        shell: bash
-        run: |
-          set -euo pipefail
-          export ARCH=arm64
-          export SUBARCH=arm64
-          export CC=clang
-          export CLANG_TRIPLE=aarch64-linux-gnu-
-          export CROSS_COMPILE=aarch64-linux-gnu-
-          export LD=ld.lld
-          export LLVM=1
-          export LLVM_IAS=1
-          export KCFLAGS=-w
-          export CONFIG_SECTION_MISMATCH_WARN_ONLY=y
-          make -s O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 -j"$JOBS"
-          test -s out/arch/arm64/boot/Image.gz
-          gzip -t out/arch/arm64/boot/Image.gz
-
-      - name: Prepare AnyKernel3 package
-        shell: bash
-        run: |
-          set -euo pipefail
-          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
-          cp kernel/out/arch/arm64/boot/Image.gz AnyKernel3/Image.gz
-
-          cat > AnyKernel3/anykernel.sh <<'AK'
-          # AnyKernel3 Ramdisk Mod Script
-          # osm0sis @ xda-developers
-          # Edit by @physwizz Generic
-          ## AnyKernel setup
-          # begin properties
-          properties() { '
-          kernel.string=Legion Kernel for mt6768 - A13VE - SukiSU Ultra - SUSFS v1.5.7
-          do.devicecheck=0
-          do.modules=0
-          do.cleanup=1
-          do.cleanuponabort=0
-          device.name1=a13ve
-          device.name2=SM-A137F
-          supported.versions=
-          '; } # end properties
-
-          # Use the same proven boot-image flow as TouchGrass Kernel v0.4.
-          block=/dev/block/by-name/boot;
-          is_slot_device=0;
-          ramdisk_compression=auto;
-
-          ## AnyKernel methods (DO NOT CHANGE)
-          . tools/ak3-core.sh;
-
-          ui_print "- Unpacking boot image";
-          dump_boot;
-
-          mount /system/
-          mount /system_root/
-
-          ui_print "- Installing new boot image";
-          write_boot;
-
-          ui_print "- Done";
-          ui_print " ";
-          ## end install
-          AK
-          chmod 0755 AnyKernel3/anykernel.sh
-
-          # Validate the kernel image and the exact installer that will ship.
-          test -s AnyKernel3/Image.gz
-          gzip -t AnyKernel3/Image.gz
-          sh -n AnyKernel3/anykernel.sh
-          (cd AnyKernel3 && zip -r9 "$GITHUB_WORKSPACE/A13VE-SukiSU-Ultra-SUSFS.zip" . -x "*.git*" "*.github*")
-          test -s A13VE-SukiSU-Ultra-SUSFS.zip
-          unzip -t A13VE-SukiSU-Ultra-SUSFS.zip
-          unzip -p A13VE-SukiSU-Ultra-SUSFS.zip anykernel.sh > "$RUNNER_TEMP/packaged-anykernel.sh"
-          sh -n "$RUNNER_TEMP/packaged-anykernel.sh"
-          grep -qF '. tools/ak3-core.sh' "$RUNNER_TEMP/packaged-anykernel.sh"
-          grep -qF 'block=/dev/block/by-name/boot;' "$RUNNER_TEMP/packaged-anykernel.sh"
-          grep -qF 'dump_boot;' "$RUNNER_TEMP/packaged-anykernel.sh"
-          grep -qF 'write_boot;' "$RUNNER_TEMP/packaged-anykernel.sh"
-          ! grep -qE '(^|[[:space:]])(BLOCK=|split_boot|flash_boot)' "$RUNNER_TEMP/packaged-anykernel.sh"
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: A13VE-SukiSU-Ultra-SUSFS
-          path: |
-            A13VE-SukiSU-Ultra-SUSFS.zip
-            kernel/out/arch/arm64/boot/Image.gz
-          if-no-files-found: error
- out/.config
-          grep -q '^CONFIG_KALLSYMS_ALL=y
-
-      - name: Build kernel Image.gz
-        working-directory: kernel
-        shell: bash
-        run: |
-          set -euo pipefail
-          export ARCH=arm64
-          export SUBARCH=arm64
-          export CC=clang
-          export CLANG_TRIPLE=aarch64-linux-gnu-
-          export CROSS_COMPILE=aarch64-linux-gnu-
-          export LD=ld.lld
-          export LLVM=1
-          export LLVM_IAS=1
-          export KCFLAGS=-w
-          export CONFIG_SECTION_MISMATCH_WARN_ONLY=y
-          make -s O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 -j"$JOBS"
-          test -s out/arch/arm64/boot/Image.gz
-          gzip -t out/arch/arm64/boot/Image.gz
-
-      - name: Prepare AnyKernel3 package
-        shell: bash
-        run: |
-          set -euo pipefail
-          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
-          cp kernel/out/arch/arm64/boot/Image.gz AnyKernel3/Image.gz
-
-          cat > AnyKernel3/anykernel.sh <<'AK'
-          # AnyKernel3 Ramdisk Mod Script
-          # osm0sis @ xda-developers
-          # Edit by @physwizz Generic
-          ## AnyKernel setup
-          # begin properties
-          properties() { '
-          kernel.string=Legion Kernel for mt6768 - A13VE - SukiSU Ultra - SUSFS v1.5.7
-          do.devicecheck=0
-          do.modules=0
-          do.cleanup=1
-          do.cleanuponabort=0
-          device.name1=a13ve
-          device.name2=SM-A137F
-          supported.versions=
-          '; } # end properties
-
-          # Use the same proven boot-image flow as TouchGrass Kernel v0.4.
-          block=/dev/block/by-name/boot;
-          is_slot_device=0;
-          ramdisk_compression=auto;
-
-          ## AnyKernel methods (DO NOT CHANGE)
-          . tools/ak3-core.sh;
-
-          ui_print "- Unpacking boot image";
-          dump_boot;
-
-          mount /system/
-          mount /system_root/
-
-          ui_print "- Installing new boot image";
-          write_boot;
-
-          ui_print "- Done";
-          ui_print " ";
-          ## end install
-          AK
-          chmod 0755 AnyKernel3/anykernel.sh
-
-          # Validate the kernel image and the exact installer that will ship.
-          test -s AnyKernel3/Image.gz
-          gzip -t AnyKernel3/Image.gz
-          sh -n AnyKernel3/anykernel.sh
-          (cd AnyKernel3 && zip -r9 "$GITHUB_WORKSPACE/A13VE-SukiSU-Ultra-SUSFS.zip" . -x "*.git*" "*.github*")
-          test -s A13VE-SukiSU-Ultra-SUSFS.zip
-          unzip -t A13VE-SukiSU-Ultra-SUSFS.zip
-          unzip -p A13VE-SukiSU-Ultra-SUSFS.zip anykernel.sh > "$RUNNER_TEMP/packaged-anykernel.sh"
-          sh -n "$RUNNER_TEMP/packaged-anykernel.sh"
-          grep -qF '. tools/ak3-core.sh' "$RUNNER_TEMP/packaged-anykernel.sh"
-          grep -qF 'block=/dev/block/by-name/boot;' "$RUNNER_TEMP/packaged-anykernel.sh"
-          grep -qF 'dump_boot;' "$RUNNER_TEMP/packaged-anykernel.sh"
-          grep -qF 'write_boot;' "$RUNNER_TEMP/packaged-anykernel.sh"
-          ! grep -qE '(^|[[:space:]])(BLOCK=|split_boot|flash_boot)' "$RUNNER_TEMP/packaged-anykernel.sh"
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: A13VE-SukiSU-Ultra-SUSFS
-          path: |
-            A13VE-SukiSU-Ultra-SUSFS.zip
-            kernel/out/arch/arm64/boot/Image.gz
-          if-no-files-found: error
- out/.config
-          grep -q 'KSU_CAN_USE_KPM' drivers/kernelsu/kernel_compat.h
-          grep -E '^(CONFIG_KSU|CONFIG_KSU_SUSFS|CONFIG_KPM|CONFIG_KALLSYMS|CONFIG_KALLSYMS_ALL|CONFIG_KPROBES|CONFIG_KRETPROBES|CONFIG_EXT4_FS)=' out/.config
-
-      - name: Build kernel Image.gz
-        working-directory: kernel
-        shell: bash
-        run: |
-          set -euo pipefail
-          export ARCH=arm64
-          export SUBARCH=arm64
-          export CC=clang
-          export CLANG_TRIPLE=aarch64-linux-gnu-
-          export CROSS_COMPILE=aarch64-linux-gnu-
-          export LD=ld.lld
-          export LLVM=1
-          export LLVM_IAS=1
-          export KCFLAGS=-w
-          export CONFIG_SECTION_MISMATCH_WARN_ONLY=y
-          make -s O=out ARCH=arm64 CC=clang LLVM=1 LLVM_IAS=1 -j"$JOBS"
-          test -s out/arch/arm64/boot/Image.gz
-          gzip -t out/arch/arm64/boot/Image.gz
-
-      - name: Prepare AnyKernel3 package
-        shell: bash
-        run: |
-          set -euo pipefail
-          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
-          cp kernel/out/arch/arm64/boot/Image.gz AnyKernel3/Image.gz
-
-          cat > AnyKernel3/anykernel.sh <<'AK'
-          # AnyKernel3 Ramdisk Mod Script
-          # osm0sis @ xda-developers
-          # Edit by @physwizz Generic
-          ## AnyKernel setup
-          # begin properties
-          properties() { '
-          kernel.string=Legion Kernel for mt6768 - A13VE - SukiSU Ultra - SUSFS v1.5.7
-          do.devicecheck=0
-          do.modules=0
-          do.cleanup=1
-          do.cleanuponabort=0
-          device.name1=a13ve
-          device.name2=SM-A137F
-          supported.versions=
-          '; } # end properties
-
-          # Use the same proven boot-image flow as TouchGrass Kernel v0.4.
-          block=/dev/block/by-name/boot;
-          is_slot_device=0;
-          ramdisk_compression=auto;
-
-          ## AnyKernel methods (DO NOT CHANGE)
-          . tools/ak3-core.sh;
-
-          ui_print "- Unpacking boot image";
-          dump_boot;
-
-          mount /system/
-          mount /system_root/
-
-          ui_print "- Installing new boot image";
-          write_boot;
-
-          ui_print "- Done";
-          ui_print " ";
-          ## end install
-          AK
-          chmod 0755 AnyKernel3/anykernel.sh
-
-          # Validate the kernel image and the exact installer that will ship.
-          test -s AnyKernel3/Image.gz
-          gzip -t AnyKernel3/Image.gz
-          sh -n AnyKernel3/anykernel.sh
-          (cd AnyKernel3 && zip -r9 "$GITHUB_WORKSPACE/A13VE-SukiSU-Ultra-SUSFS.zip" . -x "*.git*" "*.github*")
-          test -s A13VE-SukiSU-Ultra-SUSFS.zip
-          unzip -t A13VE-SukiSU-Ultra-SUSFS.zip
-          unzip -p A13VE-SukiSU-Ultra-SUSFS.zip anykernel.sh > "$RUNNER_TEMP/packaged-anykernel.sh"
-          sh -n "$RUNNER_TEMP/packaged-anykernel.sh"
-          grep -qF '. tools/ak3-core.sh' "$RUNNER_TEMP/packaged-anykernel.sh"
-          grep -qF 'block=/dev/block/by-name/boot;' "$RUNNER_TEMP/packaged-anykernel.sh"
-          grep -qF 'dump_boot;' "$RUNNER_TEMP/packaged-anykernel.sh"
-          grep -qF 'write_boot;' "$RUNNER_TEMP/packaged-anykernel.sh"
-          ! grep -qE '(^|[[:space:]])(BLOCK=|split_boot|flash_boot)' "$RUNNER_TEMP/packaged-anykernel.sh"
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: A13VE-SukiSU-Ultra-SUSFS
-          path: |
-            A13VE-SukiSU-Ultra-SUSFS.zip
+            A13VE-SukiSU-Nova-SUSFS.zip
             kernel/out/arch/arm64/boot/Image.gz
           if-no-files-found: error
