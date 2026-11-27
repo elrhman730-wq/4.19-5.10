@@ -8,6 +8,7 @@ on:
       - '.github/workflows/build_kernel_a13ve_oneui17.yml'
       - 'Profiles/a13ve_oneui17.env'
       - 'Patches/prepare_susfs_v2_4_0.py'
+      - 'Patches/patch_sukisu_nova_manager_v3_hooks.py'
   workflow_dispatch:
 
 permissions:
@@ -94,5 +95,15 @@ jobs:
           test -s KernelSU/kernel/ksu_main.c
           grep -q '^config KSU_SUSFS$' KernelSU/kernel/Kconfig
           grep -q '^config KPM$' KernelSU/kernel/Kconfig
+          grep -Fq "KSU_PACKAGE_NAME ?= com.sukisu.nova" KernelSU/kernel/Makefile
           echo "Nova integration source pinned at $KSU_COMMIT"
-          echo "This preflight deliberately does not apply the legacy v1.5.5 shim."
+          echo "Verified Manager package identity: com.sukisu.nova"
+
+      - name: Apply and verify SukiSU Nova v3 manual hooks
+        run: |
+          set -euo pipefail
+          python3 -m py_compile Patches/patch_sukisu_nova_manager_v3_hooks.py
+          python3 Patches/patch_sukisu_nova_manager_v3_hooks.py "$GITHUB_WORKSPACE/kernel"
+          grep -Fq "ksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);" kernel/fs/exec.c
+          grep -Fq "ksu_handle_sys_reboot(magic1, magic2, cmd, &arg);" kernel/kernel/reboot.c
+          echo "SukiSU Nova v3.0.0 manager hooks pass source-level validation."
