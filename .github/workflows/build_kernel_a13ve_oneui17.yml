@@ -222,11 +222,11 @@ jobs:
           p = Path("fs/stat.c")
           s = p.read_text()
           marker = "#include <linux/compat.h>"
-          inc = "#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT\\n#include <linux/susfs_def.h>\\n#endif"
+          inc = "#ifdef CONFIG_KSU_SUSFS_SUS_KSTAT\n#include <linux/susfs_def.h>\n#endif"
           if inc not in s:
               if s.count(marker) != 1:
                   raise SystemExit(f"fs/stat.c include anchor mismatch: {s.count(marker)}")
-              s = s.replace(marker, marker + "\\n" + inc, 1)
+              s = s.replace(marker, marker + "\n" + inc, 1)
               p.write_text(s)
           if inc not in p.read_text():
               raise SystemExit("SUSFS KSTAT definitions were not exposed to fs/stat.c")
@@ -303,7 +303,7 @@ jobs:
           ## AnyKernel setup
           # begin properties
           properties() { '
-          kernel.string=Legion Kernel for mt6768 - A13VE - SukiSU Nova - SUSFS v1.5.5
+          kernel.string=Legion Kernel for mt6768 - A13VE - SukiSU Nova - SUSFS v2.4.0
           do.devicecheck=0
           do.modules=0
           do.cleanup=1
