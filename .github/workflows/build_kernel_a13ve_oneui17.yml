@@ -188,7 +188,7 @@ jobs:
           ]
           for header in required_headers:
               if header not in common_src:
-                  common_src = common_src.replace(marker, marker + "\\n" + header, 1)
+                  common_src = common_src.replace(marker, marker + "\n" + header, 1)
           common.write_text(common_src)
 
           if "access_ok(VERIFY_WRITE, u64_to_user_ptr(cmd.result_code), sizeof(result))" not in kpm.read_text():
